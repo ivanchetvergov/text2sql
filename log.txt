@@ -1,0 +1,86 @@
+2026-03-01 19:52:54,483 INFO src.llm: User prompt: покажи среднее значение метрики accuracy по всем соревнованиям где тип задачи — классификация
+2026-03-01 19:52:54,632 INFO src.llm: Schema context:
+============================================================
+## FK chain hint
+Tables: metric → competition_config → competition → participation → submission → evaluation
+Joins:
+  JOIN competition_config cc ON cc.metric_id = m.metric_id
+  JOIN competition c ON c.competition_id = cc.competition_id
+  JOIN participation p ON p.competition_id = c.competition_id
+  JOIN submission s ON s.participation_id = p.participation_id
+  JOIN evaluation e ON e.submission_id = s.submission_id
+Fan-out risk (one_to_many — consider subquery):
+  metric → competition_config
+  competition → participation
+  participation → submission
+
+## Relevant tables
+- metric(metric_id BIGINT PK, task_type_id BIGINT FK→task_type, name VARCHAR -- название метрики например logloss accura, formula TEXT -- математическая формула вычисления метрик, optimization_direction VARCHAR {maximize -- направление оптимизации метрики maximize, minimize})
+- task_type(task_type_id BIGINT PK, code VARCHAR {classification -- код типа задачи например classification , regression, ranking, detection, nlp, clustering}, description TEXT -- описание типа задачи машинного обучения, valid_response_format TEXT -- допустимый формат ответа для данного тип)
+- competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best -- правило агрегации результатов best (лучш, mean, last}, max_daily_submissions INT -- максимальное количество отправок в день )
+- evaluation(evaluation_id BIGINT PK, submission_id BIGINT FK→submission, metric_value FLOAT -- числовое значение метрики результат оцен, computed_at TIMESTAMPTZ -- дата и время когда была вычислена оценка)
+- dataset(dataset_id BIGINT PK, competition_id BIGINT FK→competition, usage_type VARCHAR {train -- тип использования датасета train (обучен, test, validation}, is_hidden BOOLEAN -- скрытый ли датасет от участников, created_at TIMESTAMPTZ -- дата создания датасета добавления данных)
+- submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, submitted_at TIMESTAMPTZ -- дата и время отправки решения сабмита, status VARCHAR {success -- статус отправки success (успешно принято, failed, pending})
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования конкурса турнира, start_at TIMESTAMPTZ -- дата и время начала соревнования, end_at TIMESTAMPTZ -- дата и время окончания соревнования, status VARCHAR {active -- статус соревнования active (активное) fi, finished, draft})
+- leaderboard_row(participation_id BIGINT PK FK→participation, best_evaluation_id BIGINT FK→evaluation, score FLOAT -- лучший score участника итоговый результа, rank INT -- место в рейтинге позиция участника в таб)
+- participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, registered_at TIMESTAMPTZ -- дата и время регистрации участника в сор, status VARCHAR {active -- статус участия active (активный) disqual, withdrawn})
+
+## Schema hints
+  metric: filter name (equality_ilike) | filter optimization_direction (equality) | group_by: metric_id, name
+  task_type: filter code (equality) | group_by: task_type_id, code
+  competition_config: filter aggregation_rule (equality) | filter max_daily_submissions (comparison) | group_by: config_id, competition_id
+  evaluation: aggregate: metric_value
+  dataset: filter usage_type (equality) | filter is_hidden (equality) | filter created_at (range) | group_by: dataset_id, competition_id, usage_type
+  submission: filter status (equality) | filter submitted_at (range) | group_by: participation_id
+  competition: filter status (equality) | filter start_at (range) | filter end_at (range) | filter title (equality_ilike) | group_by: competition_id, title
+  leaderboard_row: filter rank (comparison) | filter score (comparison) | aggregate: score, rank | group_by: participation_id
+  participation: filter status (equality) | filter registered_at (range) | group_by: participation_id, user_id, competition_id
+
+## Similar examples
+Метрики для задач классификации с количеством использований в соревнованиях
+SQL: SELECT m.name, COUNT(cc.competition_id) AS usage_count FROM metric m JOIN task_type t ON m.task_type_id = t.task_type_id LEFT JOIN competition_config cc ON m.metric_id = cc.metric_id WHERE t.code = 'classification' GROUP BY m.name;
+
+Медианный score участников по типу задачи
+SQL: SELECT tt.code,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY lr.score) AS median_score
+FROM task_type tt JOIN competition c ON tt.task_type_id = c.task_type_id JOIN participation p ON c.competition_id = p.competition_id JOIN leaderboard_row lr ON p.participation_id = lr.participation_id GROUP BY tt.code;
+
+Средний score участников по каждой метрике
+SQL: SELECT m.name, AVG(lr.score) AS avg_score FROM metric m JOIN competition_config cc ON m.metric_id = cc.metric_id JOIN participation p ON cc.competition_id = p.competition_id JOIN leaderboard_row lr ON p.participation_id = lr.participation_id GROUP BY m.name;
+============================================================
+2026-03-01 19:53:53,664 INFO src.llm: Stage 1 raw:
+{
+  "from_clause": "metric m",
+  "joins": [
+    "JOIN task_type t ON m.task_type_id = t.task_type_id",
+    "JOIN competition_config cc ON m.metric_id = cc.metric_id",
+    "JOIN competition c ON cc.competition_id = c.competition_id",
+    "JOIN participation p ON c.competition_id = p.competition_id",
+    "JOIN leaderboard_row lr ON p.participation_id = lr.participation_id"
+  ],
+  "select_hint": "AVG(lr.score) AS avg_score",
+  "where_hints": [
+    "t.code = 'classification'",
+    "m.name = 'accuracy'"
+  ]
+}
+2026-03-01 19:53:53,665 INFO src.llm: Stage 1 plan:
+------------------------------------------------------------
+FROM metric m
+  JOIN task_type t ON m.task_type_id = t.task_type_id
+  JOIN competition_config cc ON m.metric_id = cc.metric_id
+  JOIN competition c ON cc.competition_id = c.competition_id
+  JOIN participation p ON c.competition_id = p.competition_id
+  JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
+SELECT hint: AVG(lr.score) AS avg_score
+WHERE hints: t.code = 'classification'; m.name = 'accuracy'
+------------------------------------------------------------
+2026-03-01 19:54:25,243 INFO src.llm: Stage 2 SQL:
+SELECT AVG(lr.score) AS avg_score
+FROM metric m
+  JOIN task_type t ON m.task_type_id = t.task_type_id
+  JOIN competition_config cc ON m.metric_id = cc.metric_id
+  JOIN competition c ON cc.competition_id = c.competition_id
+  JOIN participation p ON c.competition_id = p.competition_id
+  JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
+WHERE t.code = 'classification' AND m.name = 'accuracy';

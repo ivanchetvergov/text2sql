@@ -4,7 +4,7 @@ serve-llama:
 	ollama serve
 
 serve-api:
-	python -m text2sql.llm_service
+	uvicorn --factory src.llm_service:make_app --host 0.0.0.0 --port 8000 --reload
 
 all: serve-llama & serve-api
 	@echo "services started"

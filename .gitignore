@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.so
+
+venv/
+myvenv/
+
+*.swp
+.DS_Store
+
+*.log
