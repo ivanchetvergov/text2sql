@@ -1,4 +1,4 @@
-.PHONY: serve-llama serve-api all
+.PHONY: serve-llama serve-api all clean-logs
 
 serve-llama:
 	ollama serve
@@ -8,3 +8,7 @@ serve-api:
 
 all: serve-llama & serve-api
 	@echo "services started"
+
+clean-logs:
+	@rm -f logs/*.log
+	@echo "logs cleared"
