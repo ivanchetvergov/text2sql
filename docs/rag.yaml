@@ -195,12 +195,14 @@ tables:
   competition:
     retrieval_text: >
       Соревнования по машинному обучению — основная бизнес-сущность платформы.
-      Хранит: название, статус (active/finished/draft), даты начала и конца,
+      Хранит: название (title) соревнования, статус (active/finished/draft), даты начала и конца,
       организатора и тип задачи.
+      Фильтрация по названию: WHERE c.title ILIKE '%House Price%' — используй competition.title.
       Связана с участниками через participation, с призами через prize,
       с настройками через competition_config, с данными через dataset.
       Запросы: активные соревнования, завершённые конкурсы, турниры по классификации,
-      соревнования конкретного организатора, топ по участникам, длительность.
+      соревнования конкретного организатора, топ по участникам, длительность,
+      соревнование по названию, поиск по названию конкурса датасета турнира.
 
     context_text: "competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic', start_at TIMESTAMPTZ, end_at TIMESTAMPTZ, status VARCHAR {active,finished,draft})"
 
@@ -619,25 +621,18 @@ tables:
           WHERE s.participation_id = :participation_id
           ORDER BY s.submitted_at ASC;
 
-      - query: Средний показатель метрики MSE для задачи регрессии в соревнованиях с датасетами не менее 3 файлов
+      - query: Средний score участников соревнований по регрессии с метрикой MSE
         answer: >
-          SELECT m.name, AVG(e.metric_value) AS avg_mse
-          FROM metric m
-          JOIN task_type t ON m.task_type_id = t.task_type_id
-          JOIN competition_config cc ON m.metric_id = cc.metric_id
-          JOIN participation p ON cc.competition_id = p.competition_id
-          JOIN submission s ON p.participation_id = s.participation_id
-          JOIN evaluation e ON s.submission_id = e.submission_id
+          SELECT c.title, AVG(lr.score) AS avg_mse
+          FROM competition c
+          JOIN task_type t ON c.task_type_id = t.task_type_id
+          JOIN competition_config cc ON cc.competition_id = c.competition_id
+          JOIN metric m ON m.metric_id = cc.metric_id
+          JOIN participation p ON p.competition_id = c.competition_id
+          JOIN leaderboard_row lr ON lr.participation_id = p.participation_id
           WHERE t.code = 'regression'
-            AND m.name = 'mse'
-            AND cc.competition_id IN (
-              SELECT d.competition_id
-              FROM dataset d
-              JOIN file_artifact fa ON d.dataset_id = fa.dataset_id
-              GROUP BY d.dataset_id, d.competition_id
-              HAVING COUNT(fa.file_id) >= 3
-            )
-          GROUP BY m.name;
+            AND m.name ILIKE '%mse%'
+          GROUP BY c.title;
 
 
   leaderboard_row:
@@ -648,7 +643,7 @@ tables:
       Запросы: топ участников, рейтинг, лидерборд, первое место, позиция участника,
       лучший score, ранжирование по результатам.
 
-    context_text: "leaderboard_row(participation_id BIGINT PK FK→participation, best_evaluation_id BIGINT FK→evaluation, score FLOAT, rank INT)"
+    context_text: "leaderboard_row(participation_id BIGINT PK FK→participation, best_evaluation_id BIGINT FK→evaluation, score FLOAT -- канонический лучший результат участника предпочтительнее evaluation.metric_value для AVG MIN MAX, rank INT -- позиция в рейтинге)"
 
     columns:
       participation_id:

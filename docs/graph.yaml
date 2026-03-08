@@ -2,10 +2,7 @@ version: 4
 
 
 algorithms:
-  path_finding: steiner_approx
   max_path_length: 5               # max hops allowed in a join chain
-  max_paths_returned: 3            # keep top-N scored paths per pair
-
 
   node_type_costs:
     relationship:           0.4    # participation — cheap central hub
@@ -17,17 +14,15 @@ algorithms:
     reward:                 1.4    # prize — avoid unless queried
     data_asset:             1.0    # dataset
     artifact:               1.6    # file_artifact — leaf
-    process_event:          1.0    # submission
+    process_event:          1.2    # submission — fan-out risk, slightly more expensive
     evaluation:             1.0
-    ranking:                1.0
+    ranking:                0.8    # leaderboard_row — preferred over evaluation for aggregation
     computational_artifact: 1.6    # code_kernel — leaf
-
-  intermediate_node_cost_limit: 1.2
 
 # ---------------------------------------------------------------------------
 # Tables — structural graph metadata only.
-# Each table: node_type, hub_score (1=central), pk, directed edges with FK,
-# cardinality, join_preference, filter hints, aggregation hints.
+# Each table: node_type, hub_score (1=central), pk, directed edges with FK.
+# hub_score >= 5 = leaf node (no FK expansion).
 # ---------------------------------------------------------------------------
 tables:
 
@@ -49,18 +44,6 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-    filter_hints:
-      - col: username
-        usage: equality
-      - col: created_at
-        usage: range
-      - col: bio
-        usage: null_check
-
-    aggregation_hints:
-      group_by: [user_id, username]
-      count_distinct: [participation_id, competition_id]
-
 
   task_type:
     node_type: ontology
@@ -80,13 +63,6 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-    filter_hints:
-      - col: code
-        usage: equality           # WHERE t.code = 'classification'
-
-    aggregation_hints:
-      group_by: [task_type_id, code]
-
 
   metric:
     node_type: metric_node
@@ -105,16 +81,6 @@ tables:
         to_col: metric_id
         cardinality: one_to_many
         join_preference: JOIN
-
-    filter_hints:
-      - col: name
-        usage: equality_ilike     # WHERE m.name ILIKE '%mse%'
-      - col: optimization_direction
-        usage: equality           # WHERE m.optimization_direction = 'minimize'
-
-    aggregation_hints:
-      group_by: [metric_id, name]
-      aggregate_cols: []
 
 
   competition:
@@ -159,20 +125,6 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-    filter_hints:
-      - col: status
-        usage: equality           # WHERE c.status = 'active'
-      - col: start_at
-        usage: range
-      - col: end_at
-        usage: range
-      - col: title
-        usage: equality_ilike
-
-    aggregation_hints:
-      group_by: [competition_id, title]
-      count_distinct: [participation_id]
-
 
   competition_config:
     node_type: config
@@ -192,15 +144,6 @@ tables:
         cardinality: many_to_one
         join_preference: JOIN
 
-    filter_hints:
-      - col: aggregation_rule
-        usage: equality           # WHERE cc.aggregation_rule = 'best'
-      - col: max_daily_submissions
-        usage: comparison
-
-    aggregation_hints:
-      group_by: [config_id, competition_id]
-
 
   prize:
     node_type: reward
@@ -213,16 +156,6 @@ tables:
         to_col: competition_id
         cardinality: many_to_one
         join_preference: JOIN
-
-    filter_hints:
-      - col: amount
-        usage: comparison         # HAVING SUM(pr.amount) > ?
-      - col: currency
-        usage: equality
-
-    aggregation_hints:
-      group_by: [competition_id]
-      aggregate_cols: [amount]
 
 
   participation:
@@ -261,16 +194,6 @@ tables:
         cardinality: one_to_many
         join_preference: LEFT JOIN
 
-    filter_hints:
-      - col: status
-        usage: equality
-      - col: registered_at
-        usage: range
-
-    aggregation_hints:
-      group_by: [participation_id, user_id, competition_id]
-      count_distinct: [submission_id, kernel_id]
-
 
   dataset:
     node_type: data_asset
@@ -290,19 +213,6 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-    filter_hints:
-      - col: usage_type
-        usage: equality           # WHERE d.usage_type = 'train'
-      - col: is_hidden
-        usage: equality
-      - col: created_at
-        usage: range
-
-    aggregation_hints:
-      group_by: [dataset_id, competition_id, usage_type]
-      # file count pattern:
-      # (SELECT COUNT(*) FROM file_artifact fa WHERE fa.dataset_id = d.dataset_id) >= N
-
 
   file_artifact:
     node_type: artifact
@@ -315,16 +225,6 @@ tables:
         to_col: dataset_id
         cardinality: many_to_one
         join_preference: JOIN
-
-    filter_hints:
-      - col: filename
-        usage: equality_ilike
-      - col: size_bytes
-        usage: comparison
-
-    aggregation_hints:
-      group_by: [dataset_id]
-      aggregate_cols: [size_bytes, file_id]   # SUM(size_bytes), COUNT(file_id)
 
 
   submission:
@@ -345,16 +245,6 @@ tables:
         cardinality: one_to_one
         join_preference: LEFT JOIN
 
-    filter_hints:
-      - col: status
-        usage: equality           # WHERE s.status = 'success'
-      - col: submitted_at
-        usage: range
-
-    aggregation_hints:
-      group_by: [participation_id]
-      count_distinct: [submission_id]
-
 
   evaluation:
     node_type: evaluation
@@ -373,12 +263,6 @@ tables:
         to_col: best_evaluation_id
         cardinality: one_to_one
         join_preference: LEFT JOIN
-
-    filter_hints: []
-
-    aggregation_hints:
-      group_by: []
-      aggregate_cols: [metric_value]   # AVG, MAX, MIN, PERCENTILE_CONT
 
 
   leaderboard_row:
@@ -399,16 +283,6 @@ tables:
         cardinality: many_to_one
         join_preference: JOIN
 
-    filter_hints:
-      - col: rank
-        usage: comparison         # WHERE lr.rank <= 10
-      - col: score
-        usage: comparison
-
-    aggregation_hints:
-      group_by: [participation_id]
-      aggregate_cols: [score, rank]
-
 
   code_kernel:
     node_type: computational_artifact
@@ -421,13 +295,3 @@ tables:
         to_col: participation_id
         cardinality: many_to_one
         join_preference: JOIN
-
-    filter_hints:
-      - col: language
-        usage: equality           # WHERE ck.language = 'Python'
-      - col: created_at
-        usage: range
-
-    aggregation_hints:
-      group_by: [participation_id, language]
-      count_distinct: [kernel_id]
