@@ -1,0 +1,62 @@
+[
+    {
+        "id": "q01",
+        "question": "Сколько пользователей зарегистрировано?",
+        "expected_sql": "SELECT COUNT(*) FROM user u"
+    },
+    {
+        "id": "q02",
+        "question": "Какой средний результат участников в соревновании House Price?",
+        "expected_sql": "SELECT AVG(lr.score) FROM competition c JOIN participation p ON p.competition_id = c.competition_id JOIN leaderboard_row lr ON lr.participation_id = p.participation_id WHERE c.title ILIKE '%House Price%'"
+    },
+    {
+        "id": "q03",
+        "question": "Топ 5 участников по лучшему результату среди соревнований по регрессии",
+        "expected_sql": "SELECT u.username, lr.score FROM task_type tt JOIN competition c ON c.task_type_id = tt.task_type_id JOIN participation p ON p.competition_id = c.competition_id JOIN leaderboard_row lr ON lr.participation_id = p.participation_id JOIN user u ON u.user_id = p.user_id WHERE tt.code = 'regression' ORDER BY lr.score DESC LIMIT 5"
+    },
+    {
+        "id": "q04",
+        "question": "Какие соревнования организовала alice?",
+        "expected_sql": "SELECT c.title FROM competition c JOIN \"user\" u ON u.user_id = c.organizer_id WHERE u.username = 'alice'"
+    },
+    {
+        "id": "q05",
+        "question": "Сколько участий в каждом соревновании?",
+        "expected_sql": "SELECT c.title, COUNT(p.participation_id) FROM competition c JOIN participation p ON p.competition_id = c.competition_id GROUP BY c.title ORDER BY COUNT(p.participation_id) DESC"
+    },
+    {
+        "id": "q06",
+        "question": "Список всех соревнований с типом задачи classification",
+        "expected_sql": "SELECT c.title FROM task_type tt JOIN competition c ON c.task_type_id = tt.task_type_id WHERE tt.code = 'classification'"
+    },
+    {
+        "id": "q07",
+        "question": "Активные соревнования с количеством участников",
+        "expected_sql": "SELECT c.title, COUNT(p.participation_id) FROM competition c LEFT JOIN participation p ON p.competition_id = c.competition_id WHERE c.status = 'active' GROUP BY c.title ORDER BY COUNT(p.participation_id) DESC"
+    },
+    {
+        "id": "q08",
+        "question": "Средний score по каждой метрике оценки",
+        "expected_sql": "SELECT m.name, AVG(lr.score) AS avg_score FROM metric m JOIN competition_config cc ON cc.metric_id = m.metric_id JOIN participation p ON p.competition_id = cc.competition_id JOIN leaderboard_row lr ON lr.participation_id = p.participation_id GROUP BY m.name"
+    },
+    {
+        "id": "q09",
+        "question": "Пользователи без участия ни в одном соревновании",
+        "expected_sql": "SELECT u.username FROM user u WHERE NOT EXISTS (SELECT 1 FROM participation p WHERE p.user_id = u.user_id)"
+    },
+    {
+        "id": "q10",
+        "question": "Какой лимит отправок в день у соревнования House Price?",
+        "expected_sql": "SELECT cc.max_daily_submissions FROM competition c JOIN competition_config cc ON cc.competition_id = c.competition_id WHERE c.title ILIKE '%House Price%'"
+    },
+    {
+        "id": "q11",
+        "question": "Победитель (1-е место) в каждом завершённом соревновании — имя участника и его лучший результат",
+        "expected_sql": "SELECT c.title, u.username, lr.score FROM (SELECT lr.participation_id, lr.score, RANK() OVER (PARTITION BY p.competition_id ORDER BY lr.score DESC) AS rnk FROM leaderboard_row lr JOIN participation p ON p.participation_id = lr.participation_id JOIN competition c ON c.competition_id = p.competition_id WHERE c.status = 'finished') ranked JOIN leaderboard_row lr ON lr.participation_id = ranked.participation_id JOIN participation p ON p.participation_id = lr.participation_id JOIN competition c ON c.competition_id = p.competition_id JOIN user u ON u.user_id = p.user_id WHERE ranked.rnk = 1"
+    },
+    {
+        "id": "q12",
+        "question": "Соревнования у которых суммарный объём датасетов превышает 100 МБ и при этом участников не менее пяти",
+        "expected_sql": "SELECT c.title, SUM(fa.size_bytes) AS total_bytes, COUNT(DISTINCT p.participation_id) AS participants FROM competition c JOIN dataset d ON d.competition_id = c.competition_id JOIN file_artifact fa ON fa.dataset_id = d.dataset_id JOIN participation p ON p.competition_id = c.competition_id GROUP BY c.title HAVING SUM(fa.size_bytes) > 104857600 AND COUNT(DISTINCT p.participation_id) >= 5"
+    }
+]
