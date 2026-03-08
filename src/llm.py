@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import re
 import json
 import requests
 from .utils import Logger
+from .promts import Prompts
 
-_MAX_EXAMPLES = 3   # max similar examples passed to Stage 2
-
+_MAX_EXAMPLES = 3
 
 class LLM:
     def __init__(self,
@@ -42,7 +42,7 @@ class LLM:
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 4096},
+            "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192},
         }
         try:
             resp = requests.post(self.url, json=payload, timeout=self.timeout)
@@ -58,25 +58,21 @@ class LLM:
         tables: Dict[str, str],
         examples: List[str],
         plan_block: str = "",
-        schema_hints: str = "",
     ) -> str:
         parts: List[str] = []
         if plan_block:
-            parts.append("## Confirmed join plan\n" + plan_block)
+            parts.append("## Подтверждённый план JOIN\n" + plan_block)
         elif fk_hint:
-            parts.append("## FK chain hint\n" + fk_hint)
+            parts.append("## Подсказка FK-пути\n" + fk_hint)
         if tables:
-            parts.append("## Relevant tables\n" + "\n".join(f"- {v}" for v in tables.values() if v))
-        if schema_hints:
-            parts.append(schema_hints)
+            parts.append("## Доступные таблицы\n" + "\n".join(f"- {v}" for v in tables.values() if v))
         if examples:
-            parts.append("## Similar examples\n" + "\n\n".join(examples[:_MAX_EXAMPLES]))
+            parts.append("## Похожие примеры\n" + "\n\n".join(examples[:_MAX_EXAMPLES]))
         return "\n\n".join(parts)
 
 
     def _plan(self, schema_ctx: str, question: str) -> str:
-        from .promts import Prompts
-        prompt = f"{Prompts.llm.plan_prompt}\n\n{schema_ctx}\n\n## Question\n{question}"
+        prompt = f"{Prompts.llm.plan_prompt}\n\n{schema_ctx}\n\n## Вопрос\n{question}"
         raw = self._strip_fences(self._call(prompt, temperature=0.0, max_tokens=400))
         self._logger.info("Stage 1 raw:\n%s", raw)
         try:
@@ -88,9 +84,9 @@ class LLM:
                 return ""
             lines = [f"FROM {from_clause}"] + [f"  {j}" for j in joins]
             if plan.get("select_hint"):
-                lines.append(f"SELECT hint: {plan['select_hint']}")
+                lines.append(f"SELECT цель: {plan['select_hint']}")
             if plan.get("where_hints"):
-                lines.append("WHERE hints: " + "; ".join(plan["where_hints"]))
+                lines.append("WHERE фильтры: " + "; ".join(plan["where_hints"]))
             block = "\n".join(lines)
             self._logger.info("Stage 1 plan:\n%s\n%s\n%s", "-" * 60, block, "-" * 60)
             return block
@@ -101,7 +97,6 @@ class LLM:
     def _maybe_refine(self, sql: str, question: str, s2_ctx: str) -> str:
         """Stage 3: one judge pass — retry with error hint if SQL is rejected."""
         from .judje import Judge
-        from .promts import Prompts
         try:
             verdict = Judge(self).evaluate(question, sql)
         except Exception as exc:
@@ -113,14 +108,26 @@ class LLM:
         self._logger.info("Judge rejected SQL (%s) — retrying", error)
         correction_ctx = (
             s2_ctx
-            + f"\n\n## Correction needed\n{Prompts.llm.correction_prompt.format(error=error)}"
+            + f"\n\n## Исправление\n{Prompts.llm.correction_prompt.format(error=error)}"
         )
         full = (Prompts.llm.sql_prompt + "\n\n" + correction_ctx
-                + "\n\n## Question\n" + question)
+                + "\n\n## Вопрос\n" + question)
         refined = self._strip_fences(self._call(full))
         self._logger.info("Refined SQL:\n%s", refined)
         return refined
 
+
+    def _retrieve_context(
+        self, question: str
+    ) -> Tuple[Dict[str, str], str, List[str]]:
+        """RAG retrieval + graph FK expansion. Returns (tables, fk_hint, examples)."""
+        tables, examples = self.rag.context_for(question) if self.rag else ({}, [])
+        if self.kg:
+            ddl             = self.rag.ddl_lookup() if self.rag else {}
+            tables, fk_hint = self.kg.enrich(tables, ddl_lookup=ddl)
+        else:
+            fk_hint = ""
+        return tables, fk_hint, examples
 
     def generate(
         self,
@@ -132,24 +139,16 @@ class LLM:
         if not prompt:
             return ""
         self._logger.info("User prompt: %s", prompt)
-        from .promts import Prompts
 
-        tables, examples = self.rag.context_for(prompt) if self.rag else ({}, [])
-        tables, fk_hint, schema_hints = (
-            self.kg.enrich(tables, prompt, ddl_lookup=self.rag.ddl_lookup())
-            if self.kg else (tables, "", "")
-        )
+        tables, fk_hint, examples = self._retrieve_context(prompt)
 
-        schema_ctx = self._build_ctx(fk_hint, tables, examples, schema_hints=schema_hints)
+        schema_ctx = self._build_ctx(fk_hint, tables, examples)
         self._logger.info("Schema context:\n%s\n%s\n%s", "=" * 60, schema_ctx, "=" * 60)
 
-        plan_block = self._plan(schema_ctx, prompt) if schema_ctx else ""
-
-        s2_ctx = self._build_ctx(fk_hint, tables, examples, plan_block)
-        full_prompt = (
-            Prompts.llm.sql_prompt + "\n\n" + s2_ctx + "\n\n## Question\n" + prompt
-        )
-        sql = self._strip_fences(self._call(full_prompt, temperature, max_tokens))
+        plan_block  = self._plan(schema_ctx, prompt) if schema_ctx else ""
+        s2_ctx      = self._build_ctx(fk_hint, tables, examples, plan_block)
+        full_prompt = Prompts.llm.sql_prompt + "\n\n" + s2_ctx + "\n\n## Вопрос\n" + prompt
+        sql         = self._strip_fences(self._call(full_prompt, temperature, max_tokens))
         self._logger.info("Stage 2 SQL:\n%s", sql)
 
         # sql = self._maybe_refine(sql, prompt, s2_ctx)

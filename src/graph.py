@@ -7,6 +7,12 @@ import networkx as nx
 
 from .utils import GraphReader, Logger
 
+_CARDINALITY_COST = {
+    "one_to_one":  0.0,
+    "many_to_one": 0.1,
+    "one_to_many": 0.3,
+}
+
 class JoinEdge:
     __slots__ = ("from_table", "to_table", "from_col", "to_col",
                  "cardinality", "join_preference")
@@ -46,14 +52,13 @@ class PathResult:
 
 
 class KnowledgeGraph:
-    def __init__(self):
-        self._g: nx.DiGraph = nx.DiGraph()
+    def __init__(self) -> None:
+        self._g:          nx.DiGraph              = nx.DiGraph()
         self._tables:     Dict[str, Dict[str, Any]] = {}
-        self._algorithms: Dict[str, Any] = {}
+        self._algorithms: Dict[str, Any]           = {}
         self._logger = Logger.get_logger("src.graph", filename="graph.log")
 
-
-    def load_from_yaml(self, path: Optional[str | Path] = None) -> "KnowledgeGraph":
+    def load_from_yaml(self, path: str | Path | None = None) -> "KnowledgeGraph":
         data = GraphReader.load(path)
         self._algorithms = data["algorithms"]
         self._tables     = data["tables"]
@@ -68,24 +73,21 @@ class KnowledgeGraph:
 
         for tbl, cfg in self._tables.items():
             for edge in (cfg.get("edges") or []):
-                to = edge["to"]
+                to          = edge["to"]
+                cardinality = edge.get("cardinality", "")
                 if to not in self._g:
                     self._g.add_node(to, cost=1.0)
-                w = (self._node_cost(self._tables.get(to, {}).get("node_type", "")) +
-                     self._node_cost(cfg.get("node_type", ""))) / 2.0
-                self._g.add_edge(tbl, to,
-                                 from_col=edge["from_col"],
-                                 to_col=edge["to_col"],
-                                 cardinality=edge.get("cardinality", ""),
-                                 join_preference=edge.get("join_preference", "JOIN"),
-                                 weight=w)
-
+                w           = self._edge_weight(cfg.get("node_type", ""),
+                                                self._tables.get(to, {}).get("node_type", ""),
+                                                cardinality)
+                attrs = dict(from_col=edge["from_col"], to_col=edge["to_col"],
+                             cardinality=cardinality,
+                             join_preference=edge.get("join_preference", "JOIN"))
+                self._g.add_edge(tbl, to, **attrs, weight=w)
                 if not self._g.has_edge(to, tbl):
-                    self._g.add_edge(to, tbl,
-                                     from_col=edge["to_col"],
-                                     to_col=edge["from_col"],
-                                     cardinality=edge.get("cardinality", ""),
-                                     join_preference=edge.get("join_preference", "JOIN"),
+                    self._g.add_edge(to, tbl, **{**attrs,
+                                                 "from_col": edge["to_col"],
+                                                 "to_col":   edge["from_col"]},
                                      weight=w * 1.5)
 
         self._logger.info("Graph loaded: %d nodes, %d edges",
@@ -95,8 +97,11 @@ class KnowledgeGraph:
     def _node_cost(self, node_type: str) -> float:
         return self._algorithms.get("node_type_costs", {}).get(node_type, 1.0)
 
+    def _edge_weight(self, from_type: str, to_type: str, cardinality: str) -> float:
+        base = (self._node_cost(from_type) + self._node_cost(to_type)) / 2.0
+        return base + _CARDINALITY_COST.get(cardinality, 0.1)
 
-    def expand(self, anchor_tables: List[str], question: str = "", k: int = 1) -> List[PathResult]:
+    def expand(self, anchor_tables: List[str]) -> List[PathResult]:
         anchors = [t for t in anchor_tables if t in self._g]
         if not anchors:
             self._logger.warning("No anchors found in graph: %s", anchor_tables)
@@ -115,17 +120,24 @@ class KnowledgeGraph:
         return []
 
     def _bfs_chain(self, anchors: List[str]) -> Optional[List[str]]:
-        """Dijkstra-shortest path chaining through ordered anchors."""
+        """Dijkstra-shortest path chaining through ordered anchors. Skips already-visited nodes."""
         max_len = self._algorithms.get("max_path_length", 5)
-        chain: List[str] = []
+        chain:   List[str] = []
+        visited: set[str]  = set()
         for i in range(len(anchors) - 1):
+            src, dst = anchors[i], anchors[i + 1]
+            if dst in visited:
+                continue
             try:
-                segment = nx.dijkstra_path(self._g, anchors[i], anchors[i + 1], weight="weight")
+                segment = nx.dijkstra_path(self._g, src, dst, weight="weight")
                 if len(segment) > max_len:
                     self._logger.info("BFS: segment %s→%s exceeds max_path_length=%d",
-                                      anchors[i], anchors[i + 1], max_len)
+                                      src, dst, max_len)
                     return None
-                chain.extend(segment if not chain else segment[1:])
+                for node in (segment if not chain else segment[1:]):
+                    if node not in visited:
+                        chain.append(node)
+                        visited.add(node)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
                 return None
         return chain
@@ -144,31 +156,11 @@ class KnowledgeGraph:
     def _is_leaf(self, table: str) -> bool:
         return self._tables.get(table, {}).get("hub_score", 5) >= 5
 
-    def _schema_hints_block(self, table_names: List[str]) -> str:
-        lines: List[str] = []
-        for tname in table_names:
-            cfg = self._tables.get(tname, {})
-            parts: List[str] = []
-
-            for h in (cfg.get("filter_hints") or []):
-                parts.append(f"filter {h['col']} ({h['usage']})")
-
-            agg = cfg.get("aggregation_hints") or {}
-            if agg.get("aggregate_cols"):
-                parts.append("aggregate: " + ", ".join(agg["aggregate_cols"]))
-            if agg.get("group_by"):
-                parts.append("group_by: " + ", ".join(agg["group_by"]))
-
-            if parts:
-                lines.append(f"  {tname}: " + " | ".join(parts))
-        return ("## Schema hints\n" + "\n".join(lines)) if lines else ""
-
     def enrich(
         self,
         tables: Dict[str, str],
-        question: str,
         ddl_lookup: Optional[Dict[str, str]] = None,
-    ) -> tuple:
+    ) -> tuple[Dict[str, str], str]:
         enriched = dict(tables)
         lookup   = ddl_lookup or {}
 
@@ -187,7 +179,7 @@ class KnowledgeGraph:
             self._logger.info("FK expansion added: %s", added)
 
         hint = ""
-        results = self.expand(list(enriched.keys()), question=question)
+        results = self.expand(list(tables.keys()))  # only original RAG tables, not FK-expanded
         if results:
             pr = results[0]
             hint = pr.to_context_block()
@@ -197,8 +189,7 @@ class KnowledgeGraph:
                 hint += "\nFan-out risk (one_to_many — consider subquery):\n" + "\n".join(fanout)
             self._logger.info("Graph hint (BFS):\n%s\n%s\n%s", "-" * 60, hint, "-" * 60)
 
-        schema_hints = self._schema_hints_block(list(enriched.keys()))
-        return enriched, hint, schema_hints
+        return enriched, hint
 
     def search_by_node_type(self, node_type: str) -> List[str]:
         return [n for n, d in self._g.nodes(data=True)
@@ -213,10 +204,9 @@ class KnowledgeGraph:
 
 if __name__ == "__main__":
     kg = KnowledgeGraph().load_from_yaml()
-    kg.show()
     print(kg.describe())
 
-    results = kg.expand(["metric", "task_type", "file_artifact"], question="среднее accuracy классификация")
+    results = kg.expand(["metric", "task_type", "file_artifact"])
     for r in results:
         print(r.to_context_block())
 
