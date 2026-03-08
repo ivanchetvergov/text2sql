@@ -1,76 +1,82 @@
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
 class LLMServiceConfig:
     prompt: str = ""
 
 
-@dataclass(frozen=True)
 class JudgeConfig:
     prompt: str = (
-        "You are an expert SQL judge.\n"
-        "Given a user request and a generated SQL query, evaluate whether the SQL \n"
-        "correctly implements the intent, is syntactically valid, uses appropriate \n"
-        "tables/columns, guards against injection, and adheres to best practices.\n"
-        "Produce a JSON object with the following fields:\n"
-        "  - valid: boolean (true if SQL likely correct)\n"
-        "  - score: number between 0 and 1 reflecting confidence/quality\n"
-        "  - error: string (empty if valid, otherwise describe issue)\n"
-        "  - comments: optional string with suggestions or notes.\n"
-        "Do not output anything outside the JSON structure."
+        "Ты — эксперт по проверке SQL-запросов.\n"
+        "Получив запрос пользователя и сгенерированный SQL, оцени корректность запроса.\n\n"
+        "Критерии valid=true (ВСЕ должны выполняться):\n"
+        "  1. SQL реализует намерение пользователя: правильный результат по смыслу.\n"
+        "  2. Используются правильные таблицы и столбцы.\n"
+        "  3. SELECT возвращает именно то, что запрашивал пользователь (правильная проекция).\n\n"
+        "НЕ являются основанием для valid=false:\n"
+        "  — отсутствие или наличие точки с запятой в конце,\n"
+        "  — порядок столбцов в условии ON (a.id = b.id эквивалентно b.id = a.id),\n"
+        "  — наличие алиасов для столбцов (AS avg_score и т.п.),\n"
+        "  — незначительные стилевые отличия от эталона.\n\n"
+        "Если SELECT возвращает неверные столбцы (например COUNT(*) вместо списка имён) —\n"
+        "это ошибка проекции: valid=false даже при правильном WHERE и JOIN.\n\n"
+        "Верни JSON-объект со следующими полями:\n"
+        "  - valid: boolean\n"
+        "  - score: число от 0 до 1\n"
+        "  - error: строка (пустая если valid=true, иначе — конкретное описание проблемы)\n"
+        "  - comments: строка с замечаниями (опционально)\n"
+        "Пример вывода: {\"valid\": true, \"score\": 0.95, \"error\": \"\", \"comments\": \"\"}\n"
+        "Выводи ТОЛЬКО JSON, без пояснений и маркдауна."
     )
 
-@dataclass(frozen=True)
+
 class LLMConfig:
-    plan_prompt = """You are a PostgreSQL join planner. Output a JSON join plan.
+    plan_prompt = """Ты — планировщик JOIN-запросов PostgreSQL. Выведи план соединений в формате JSON.
 
-Context sections you will receive:
-  "## FK chain hint"  — pre-computed path skeleton; use as start, verify each link.
-  "## Relevant tables" — every available table with columns and FK→ references.
-  "## Schema hints"   — per-table guidance on filters and aggregation columns.
+Разделы контекста:
+  "## Подсказка FK-пути"        — предрассчитанный путь по FK; используй как основу, проверь каждую связь.
+  "## Доступные таблицы"        — DDL всех таблиц; столбцы могут содержать inline-комментарии после --.
+  "## Похожие примеры"          — готовые пары вопрос→SQL; следуй их паттернам соединений.
 
-Priority rules (highest first):
-1. Schema hints govern SELECT target: if a table shows `aggregate: col`, that column
-   is the canonical value to aggregate — prefer it over deeper raw tables.
-   Example: leaderboard_row.score is the best-per-participant metric; prefer it over
-   evaluation.metric_value (which is per-submission and causes fan-out).
-2. WHERE coverage: for every filter implied by the question, ensure the table carrying
-   that column is in the join list — trace FK→ references if needed.
-3. FK chain hint provides JOIN order and ON clauses; extend or trim it as rules 1-2 require.
-4. Similar examples in context are authoritative on join patterns — follow them.
-5. joins must be in traversal order; each alias must reference a prior alias.
+Правила (в порядке убывания приоритета):
+1. Столбец агрегации определяется по inline-комментарию после -- в "## Доступные таблицы".
+   Если комментарий содержит слова «лучший», «итоговый», «канонический» или «предпочтительнее» —
+   это агрегатный столбец: используй его, а не более глубокие таблицы.
+   Пример: leaderboard_row.score вместо evaluation.metric_value (per-submission — размножение строк).
+2. WHERE-покрытие: для каждого фильтра из вопроса убедись, что таблица с нужным столбцом есть в плане;
+   при необходимости трассируй FK.
+3. Подсказка FK-пути задаёт порядок JOIN и условия ON; дополняй или сокращай по правилам 1–2.
+4. JOIN-ы должны идти в порядке обхода; каждый алиас должен ссылаться на уже объявленный.
 
-Output ONLY valid JSON, no prose, no markdown fences:
-{"from_clause":"<table> <alias>","joins":["JOIN <table> <alias> ON <a>.<col>=<b>.<col>"],"select_hint":"<what to compute>","where_hints":["<col> = '<val>'"]}"""
+Выведи ТОЛЬКО валидный JSON, без пояснений и маркдауна.
+Пример (однотабличный): {"from_clause":"competition c","joins":[],"select_hint":"COUNT(*)","where_hints":[]}
+Пример (с JOIN):        {"from_clause":"participation p","joins":["JOIN leaderboard_row lr ON lr.participation_id = p.participation_id"],"select_hint":"AVG(lr.score)","where_hints":["c.title ILIKE '%House%'"]}"""
 
-    sql_prompt = """You are a great PostgreSQL SQL engineer. Write correct, minimal SQL using ONLY the provided schema.
+    sql_prompt = """Ты — эксперт PostgreSQL. Напиши корректный минимальный SQL, используя ТОЛЬКО предоставленную схему.
 
-1. Tables: use ONLY names from "## Relevant tables". Never invent a name.
-2. Join plan: reproduce "## Confirmed join plan" FROM and JOINs exactly, in order.
-   Add a JOIN only when a SELECT column or WHERE filter requires a table not in the plan.
-3. Aggregation column: check "## Schema hints" — if a table lists `aggregate: col`,
-   use that column. leaderboard_row.score (best result per participant) takes priority
-   over evaluation.metric_value (raw per-submission value) for user-facing averages.
-4. Fan-out: when fan-out warnings are present, use leaderboard_row instead of joining
-   through submission+evaluation. Only use a subquery when no simpler JOIN path exists.
-5. Keep it simple: prefer a flat JOIN chain over subqueries, CTEs, or window functions
-   unless the question explicitly requires them or fan-out makes aggregation incorrect.
-6. Every table must have a short unique alias (1-2 letters).
-7. Use DISTINCT only when duplicates are logically unavoidable.
+1. Таблицы: используй ТОЛЬКО имена из "## Доступные таблицы". Не придумывай имена.
+2. JOIN-план: воспроизведи FROM и JOIN из "## Подтверждённый план JOIN" точно и в том же порядке.
+   Если раздела "## Подтверждённый план JOIN" нет — используй "## Подсказка FK-пути" как основу.
+   Добавляй JOIN только если столбец в SELECT или WHERE требует таблицы, которой нет в плане.
+3. Агрегация и размножение строк: читай inline-комментарии после -- в "## Доступные таблицы".
+   Столбец со словами «лучший», «итоговый», «канонический» обязателен к использованию.
+   leaderboard_row.score (лучший результат участника) имеет приоритет над evaluation.metric_value.
+   При предупреждениях о размножении строк используй leaderboard_row вместо цепочки submission→evaluation;
+   подзапрос — только если нет более простого пути через JOIN.
+4. Простота: предпочитай плоскую цепочку JOIN вместо подзапросов, CTE и оконных функций,
+   если вопрос явно не требует их или размножение строк не делает агрегацию некорректной.
+5. Каждая таблица должна иметь короткий уникальный алиас (1–2 буквы).
+6. DISTINCT — только когда дубли логически неизбежны.
 
-OUTPUT: raw SQL only — no fences, no backticks, no explanation.
-Each clause (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY) on its own line."""
+ВЫВОД: только SQL — без маркдауна, обратных кавычек и пояснений.
+Каждый clause (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY) — на отдельной строке."""
 
     correction_prompt = (
-        "The previous SQL was rejected with this error:\n"
+        "Предыдущий SQL был отклонён с ошибкой:\n"
         "{error}\n\n"
-        "Fix EXACTLY this issue. Do not change anything else.\n"
-        "OUTPUT: raw SQL only — no fences, no explanation."
+        "Исправь ТОЛЬКО эту проблему. Ничего больше не меняй.\n"
+        "ВЫВОД: только SQL — без маркдауна и пояснений."
     )
 
 
-@dataclass(frozen=True)
 class Prompts:
     llm_service = LLMServiceConfig()
-    judge = JudgeConfig()
-    llm = LLMConfig()
+    judge       = JudgeConfig()
+    llm         = LLMConfig()
