@@ -1,0 +1,13 @@
+2026-04-14 19:17:04,825 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-14 19:17:52,598 INFO src.graph: FK expansion added: ['task_type', 'dataset', 'metric', 'submission', 'evaluation']
+2026-04-14 19:17:52,599 INFO src.graph: expand: no path found for anchors=['competition', 'prize', 'role', 'user', 'competition_config', 'participation', 'dataset_purpose', 'leaderboard_row', 'file_artifact', 'team_role', 'participation_status']
+2026-04-14 19:19:28,364 INFO src.graph: FK expansion added: ['task_type', 'dataset', 'metric', 'submission', 'evaluation']
+2026-04-14 19:19:28,364 INFO src.graph: expand: no path found for anchors=['competition', 'prize', 'role', 'user', 'competition_config', 'participation', 'dataset_purpose', 'leaderboard_row', 'file_artifact', 'team_role', 'participation_status']
+2026-04-14 19:25:18,327 INFO src.graph: FK expansion added: ['evaluation', 'dataset', 'submission', 'task_type']
+2026-04-14 19:25:18,327 INFO src.graph: expand: no path found for anchors=['competition_config', 'role', 'user', 'leaderboard_row', 'team_role', 'file_artifact', 'participation', 'team_status', 'participation_status', 'metric', 'code_kernel', 'competition']
+2026-04-14 19:33:56,558 INFO src.graph: FK expansion added: ['dataset', 'evaluation']
+2026-04-14 19:33:56,559 INFO src.graph: expand: no path found for anchors=['competition', 'leaderboard_row', 'metric', 'user', 'competition_config', 'participation', 'prize', 'task_type', 'role', 'submission']
+2026-04-14 19:36:08,191 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-15 13:22:31,540 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-15 13:23:36,876 INFO src.graph: FK expansion added: ['submission', 'task_type', 'participation', 'user']
+2026-04-15 13:23:36,877 INFO src.graph: expand: no path found for anchors=['evaluation', 'competition_config', 'metric', 'leaderboard_row', 'competition', 'file_artifact', 'role', 'team_role', 'dataset', 'competition_status', 'team_status']

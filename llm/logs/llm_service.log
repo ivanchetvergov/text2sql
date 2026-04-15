@@ -1,0 +1,155 @@
+2026-04-14 19:18:00,816 INFO src.llm_service: Generated SQL:
+SELECT c.competition_id, u.username, lr.score
+FROM competition c
+JOIN leaderboard_row lr ON lr.participation_id = (
+    SELECT p.participation_id
+    FROM participation p
+    WHERE p.competition_id = c.competition_id
+      AND p.status = 'active'
+    LIMIT 1
+)
+JOIN participation p ON p.participation_id = lr.participation_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE c.status = 'finished'
+  AND lr.rank = 1;
+2026-04-14 19:18:00,821 ERROR src.llm_service: SQL execution failed: [Errno 61] Connection refused
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 118, in _generate
+    conn = await asyncpg.connect(**_pg_connect_kwargs())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+    return await connect_utils._connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+    raise last_error or exceptions.TargetServerAttributeNotMatched(
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+    conn = await _connect_addr(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+    return await __connect_addr(params, True, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+    tr, pr = await connector
+             ^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+    tr, pr = await loop.create_connection(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 2043, in create_connection
+  File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+ConnectionRefusedError: [Errno 61] Connection refused
+2026-04-14 19:19:51,322 INFO src.llm_service: Generated SQL:
+SELECT c.competition_id, c.title, u.username, lr.score
+FROM competition c
+JOIN leaderboard_row lr ON lr.participation_id = (
+    SELECT p.participation_id
+    FROM participation p
+    WHERE p.competition_id = c.competition_id
+      AND p.status = 'active'
+    LIMIT 1
+)
+JOIN participation p ON p.participation_id = lr.participation_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE c.status = 'finished'
+  AND lr.rank = 1;
+2026-04-14 19:19:51,371 ERROR src.llm_service: SQL execution failed: relation "leaderboard_row" does not exist
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 119, in _generate
+    rows = await conn.fetch(limited_sql)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 694, in fetch
+    return await self._execute(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1873, in _execute
+    result, _ = await self.__execute(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1970, in __execute
+    result, stmt = await self._do_execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 2013, in _do_execute
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedTableError: relation "leaderboard_row" does not exist
+2026-04-14 19:25:20,530 INFO src.llm_service: Generated SQL:
+SELECT COUNT(*) AS user_count
+FROM "user" u
+2026-04-14 19:34:14,074 INFO src.llm_service: Generated SQL:
+SELECT u.username, lr.score AS best_score
+FROM user u
+JOIN participation p ON u.user_id = p.user_id
+JOIN competition c ON p.competition_id = c.competition_id
+JOIN competition_config cc ON cc.competition_id = c.competition_id
+JOIN metric m ON cc.metric_id = m.metric_id
+JOIN leaderboard_row lr ON lr.participation_id = p.participation_id
+JOIN evaluation e ON e.evaluation_id = lr.best_evaluation_id
+WHERE c.title = 'Titanic Dataset'
+  AND m.name = 'MSE'
+  AND DATE_PART('hour', e.computed_at) BETWEEN 2 AND 3
+  AND (
+    SELECT COUNT(*) 
+    FROM submission s 
+    WHERE s.participation_id = p.participation_id
+  ) <= 5
+ORDER BY lr.score ASC;
+2026-04-14 19:34:14,110 ERROR src.llm_service: SQL execution failed: column u.user_id does not exist
+HINT:  Perhaps you meant to reference the column "p.user_id".
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 119, in _generate
+    rows = await conn.fetch(limited_sql)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 694, in fetch
+    return await self._execute(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1873, in _execute
+    result, _ = await self.__execute(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1970, in __execute
+    result, stmt = await self._do_execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 2013, in _do_execute
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedColumnError: column u.user_id does not exist
+HINT:  Perhaps you meant to reference the column "p.user_id".
+2026-04-15 13:23:52,789 INFO src.llm_service: Generated SQL:
+SELECT COUNT(e.evaluation_id) AS cnt
+FROM evaluation e
+JOIN submission s ON e.submission_id = s.submission_id
+JOIN participation p ON s.participation_id = p.participation_id
+JOIN competition c ON p.competition_id = c.competition_id
+JOIN competition_config cc ON cc.competition_id = c.competition_id
+JOIN metric m ON m.metric_id = cc.metric_id
+JOIN dataset d ON d.competition_id = c.competition_id
+JOIN file_artifact fa ON fa.dataset_id = d.dataset_id
+WHERE m.name ILIKE '%mse%'
+  AND e.metric_value < 10
+  AND fa.filename ILIKE '%Titanic%';
+2026-04-15 13:23:52,832 ERROR src.llm_service: SQL execution failed: relation "competition_config" does not exist
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 119, in _generate
+    rows = await conn.fetch(limited_sql)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 694, in fetch
+    return await self._execute(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1873, in _execute
+    result, _ = await self.__execute(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 1970, in __execute
+    result, stmt = await self._do_execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 2013, in _do_execute
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedTableError: relation "competition_config" does not exist
