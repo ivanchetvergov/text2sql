@@ -15,6 +15,19 @@ _DEFAULT_CARDINALITY_COST = {
 
 _DEFAULT_REVERSE_EDGE_MULTIPLIER = 1.5
 
+_TABLE_ALIASES = {
+    "competition_config": "configuration",
+    "file_artifact": "dataset_file",
+    "leaderboard_row": "participation",
+    "leaderboard_entry": "participation",
+    "evaluation": "submission",
+    "solution_code": "submission",
+}
+
+
+def _canonical_table(name: str) -> str:
+    return _TABLE_ALIASES.get(name, name)
+
 class JoinEdge:
     __slots__ = ("from_table", "to_table", "from_col", "to_col",
                  "cardinality", "join_preference")
@@ -63,7 +76,19 @@ class KnowledgeGraph:
     def load_from_yaml(self, path: str | Path | None = None) -> "KnowledgeGraph":
         data = GraphReader.load(path)
         self._algorithms = data["algorithms"]
-        self._tables     = data["tables"]
+        raw_tables = data["tables"]
+        self._tables = {}
+
+        for tbl, cfg in raw_tables.items():
+            ct = _canonical_table(tbl)
+            if ct not in self._tables:
+                self._tables[ct] = {**cfg, "edges": []}
+            for edge in (cfg.get("edges") or []):
+                normalized_edge = {
+                    **edge,
+                    "to": _canonical_table(edge["to"]),
+                }
+                self._tables[ct]["edges"].append(normalized_edge)
 
         for tbl, cfg in self._tables.items():
             self._g.add_node(tbl,
@@ -217,7 +242,7 @@ if __name__ == "__main__":
     kg = KnowledgeGraph().load_from_yaml()
     print(kg.describe())
 
-    results = kg.expand(["metric", "task_type", "file_artifact"])
+    results = kg.expand(["metric", "task_type", "dataset_file"])
     for r in results:
         print(r.to_context_block())
 

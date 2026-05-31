@@ -1,3 +1,25 @@
-.env
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment
+.env
+
+# Logs
+llm/logs/*.log
+
+# OS
+.DS_Store
+.vscode/
+
+# Jupyter
+*.ipynb
+
+# Misc
+*.egg-info/
+dist/
+build/

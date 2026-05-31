@@ -50,6 +50,25 @@ def _apply_limit(sql: str, row_limit: int) -> str:
     return f"{base}\nLIMIT {row_limit}"
 
 
+def _normalize_sql(sql: str) -> str:
+    # Minimal fixes for common schema naming mismatches from generated SQL.
+    fixed = sql
+    fixed = re.sub(r"\bleaderboard_row\b", "participation", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bleaderboard_entry\b", "participation", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bevaluation\b", "submission", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bsolution_code\b", "submission", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bcompetition_config\b", "configuration", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bfile_artifact\b", "dataset_file", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bcomputed_at\b", "submitted_at", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bevaluated_at\b", "submitted_at", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bbest_evaluation_id\b", "submission_id", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bdescription\b", "solution_description", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\blr\.score\b", "lr.best_score", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bFROM\s+user\b", 'FROM "user"', fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\bJOIN\s+user\b", 'JOIN "user"', fixed, flags=re.IGNORECASE)
+    return fixed
+
+
 class Prompt(BaseModel):
     prompt: str
 
@@ -96,7 +115,24 @@ class LLMService:
 
 
     async def _generate(self, body: Prompt) -> dict[str, str]:
-        sql = self.client.generate(body.prompt)
+        try:
+            sql = self.client.generate(body.prompt)
+        except Exception as exc:
+            msg = str(exc)
+            lowered = msg.lower()
+            is_provider_unavailable = "503" in lowered or "no healthy upstream" in lowered
+            if is_provider_unavailable:
+                self._logger.warning("LLM provider temporarily unavailable: %s", msg)
+                user_msg = "LLM provider is temporarily unavailable (503). Please retry in 10-30 seconds."
+            else:
+                self._logger.exception("LLM generation failed: %s", exc)
+                user_msg = f"LLM error: {msg}"
+            return {
+                "text": (
+                    "SQL:\n\n<not generated>\n\n"
+                    f"RESULT:\n\n{user_msg}"
+                )
+            }
         row_limit = int(os.getenv("LLM_RESULT_LIMIT", "20"))
 
         self._logger.info("Generated SQL:\n%s", sql)
@@ -112,13 +148,13 @@ class LLMService:
                 )
             }
 
-        limited_sql = _apply_limit(sql, row_limit)
+        limited_sql = _normalize_sql(_apply_limit(sql, row_limit))
         conn = None
         try:
             conn = await asyncpg.connect(**_pg_connect_kwargs())
             rows = await conn.fetch(limited_sql)
             data = [dict(r) for r in rows]
-            rendered = json.dumps(data, ensure_ascii=False, indent=2)
+            rendered = json.dumps(data, ensure_ascii=False, indent=2, default=str)
             return {
                 "text": (
                     f"SQL:\n\n{limited_sql}\n\n"

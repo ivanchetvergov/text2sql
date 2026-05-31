@@ -15,11 +15,4 @@ CREATE TABLE IF NOT EXISTS competition_dataset (
     PRIMARY KEY (competition_id, dataset_id)
 );
 
-CREATE TABLE IF NOT EXISTS team_competition (
-    team_id INT NOT NULL REFERENCES team(team_id) ON DELETE CASCADE,
-    dataset_id INT NOT NULL REFERENCES dataset(dataset_id) ON DELETE CASCADE,
-    added_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (team_id, dataset_id)
-);
-
 COMMIT;

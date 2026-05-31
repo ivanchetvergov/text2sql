@@ -4,741 +4,46 @@ tables:
 
   user:
     retrieval_text: >
-      Пользователи платформы: участники, организаторы соревнований, разработчики решений.
-      Хранит профиль пользователя: имя, email, биография, дата регистрации.
+      Пользователи платформы: участники, организаторы соревнований, администраторы.
+      Хранит профиль пользователя: имя, email, дата регистрации.
       Организатор соревнования связан через competition.organizer_id.
       Участие в соревновании — через таблицу participation по user_id.
-      Запросы: кто участвовал, кто организовал, активные пользователи, без биографии,
-      зарегистрированные в период, топ по отправкам, пользователи без активности.
+      Запросы: кто участвовал, кто организовал, активные пользователи,
+      зарегистрированные в период, топ по отправкам.
 
-    context_text: "user(user_id BIGINT PK, username VARCHAR, email VARCHAR, created_at TIMESTAMPTZ, bio TEXT nullable)"
+    context_text: "user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR, email VARCHAR, password_hash VARCHAR, registered_at TIMESTAMP)"
 
     columns:
       user_id:
         retrieval_text: уникальный идентификатор пользователя, первичный ключ
+      role_id:
+        retrieval_text: FK на role.role_id
       username:
         retrieval_text: имя пользователя, логин, никнейм
       email:
         retrieval_text: электронная почта пользователя
-      created_at:
-        retrieval_text: дата и время регистрации пользователя на платформе
-      bio:
-        retrieval_text: биография пользователя, описание профиля, может быть пустым (NULL)
-
-    examples:
-      - query: Пользователи зарегистрированные в 2023 году отсортированные по количеству отправок
-        answer: >
-          SELECT u.user_id, u.username, COUNT(s.submission_id) AS submissions_count
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          JOIN submission s ON p.participation_id = s.participation_id
-          WHERE u.created_at BETWEEN '2023-01-01' AND '2023-12-31'
-          GROUP BY u.user_id, u.username
-          ORDER BY submissions_count DESC;
-
-      - query: Организаторы соревнований с наибольшим числом участников
-        answer: >
-          SELECT u.user_id, u.username, COUNT(p.participation_id) AS participants
-          FROM user u
-          JOIN competition c ON u.user_id = c.organizer_id
-          JOIN participation p ON c.competition_id = p.competition_id
-          GROUP BY u.user_id, u.username
-          ORDER BY participants DESC
-          LIMIT 10;
-
-      - query: Пользователи без участия в соревнованиях и без отправок
-        answer: >
-          SELECT u.user_id, u.username
-          FROM user u
-          WHERE NOT EXISTS (
-            SELECT 1 FROM participation p WHERE p.user_id = u.user_id
-          );
-
-      - query: Пользователи у которых нет биографии
-        answer: >
-          SELECT user_id, username
-          FROM user
-          WHERE bio IS NULL OR bio = '';
-
-      - query: Топ пользователей по числу соревнований в которых они участвовали
-        answer: >
-          SELECT u.username, COUNT(DISTINCT p.competition_id) AS competitions_count
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          GROUP BY u.username
-          ORDER BY competitions_count DESC
-          LIMIT 10;
-
-
-  task_type:
-    retrieval_text: >
-      Справочник типов задач машинного обучения: классификация, регрессия, ранжирование,
-      детекция объектов, NLP задачи, кластеризация.
-      Связывает тип задачи с метриками оценки и соревнованиями.
-      Запросы: какие типы задач существуют, соревнования по типу задачи,
-      метрики для классификации, задачи без соревнований.
-
-    context_text: "task_type(task_type_id BIGINT PK, code VARCHAR {classification,regression,ranking,detection,nlp,clustering}, description TEXT, valid_response_format TEXT)"
-
-    columns:
-      task_type_id:
-        retrieval_text: уникальный идентификатор типа задачи, первичный ключ
-      code:
-        retrieval_text: код типа задачи например classification regression ranking
-      description:
-        retrieval_text: описание типа задачи машинного обучения
-      valid_response_format:
-        retrieval_text: допустимый формат ответа для данного типа задачи
-
-    examples:
-      - query: Типы задач с количеством соревнований и суммарным призовым фондом
-        answer: >
-          SELECT tt.code, COUNT(c.competition_id) AS competitions, SUM(pr.amount) AS prize_fund
-          FROM task_type tt
-          JOIN competition c ON tt.task_type_id = c.task_type_id
-          LEFT JOIN prize pr ON c.competition_id = pr.competition_id
-          GROUP BY tt.code;
-
-      - query: Типы задач для которых нет ни одного соревнования
-        answer: >
-          SELECT tt.code
-          FROM task_type tt
-          LEFT JOIN competition c ON tt.task_type_id = c.task_type_id
-          WHERE c.competition_id IS NULL;
-
-      - query: Медианный score участников по типу задачи
-        answer: >
-          SELECT tt.code,
-                 percentile_cont(0.5) WITHIN GROUP (ORDER BY lr.score) AS median_score
-          FROM task_type tt
-          JOIN competition c ON tt.task_type_id = c.task_type_id
-          JOIN participation p ON c.competition_id = p.competition_id
-          JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          GROUP BY tt.code;
-
-      - query: Пользователи участвовавшие в соревнованиях по классификации и имеющие хотя бы одну успешную отправку
-        answer: >
-          SELECT DISTINCT u.username
-          FROM user u
-          JOIN participation p ON p.user_id = u.user_id
-          JOIN competition c ON c.competition_id = p.competition_id
-          JOIN competition_config cc ON cc.competition_id = c.competition_id
-          JOIN metric m ON m.metric_id = cc.metric_id
-          JOIN task_type t ON t.task_type_id = m.task_type_id
-          JOIN submission s ON s.participation_id = p.participation_id
-          WHERE t.code = 'classification'
-            AND s.status = 'success';
-
-      - query: Пользователи с успешными отправками в соревнованиях по типу задачи регрессия
-        answer: >
-          SELECT DISTINCT u.username
-          FROM user u
-          JOIN participation p ON p.user_id = u.user_id
-          JOIN competition c ON c.competition_id = p.competition_id
-          JOIN competition_config cc ON cc.competition_id = c.competition_id
-          JOIN metric m ON m.metric_id = cc.metric_id
-          JOIN task_type t ON t.task_type_id = m.task_type_id
-          JOIN submission s ON s.participation_id = p.participation_id
-          WHERE t.code = 'regression'
-            AND s.status = 'success';
-
-
-  metric:
-    retrieval_text: >
-      Метрики оценки качества ML моделей: accuracy, logloss, f1, rmse, auc, map.
-      Применяются в соревнованиях через competition_config.
-      Каждая метрика принадлежит типу задачи и имеет направление оптимизации
-      (maximize — больше лучше, minimize — меньше лучше).
-      Запросы: метрики классификации, метрики минимизации, logloss соревнования,
-      средний score по метрике, формула метрики.
-
-    context_text: "metric(metric_id BIGINT PK, task_type_id BIGINT FK→task_type, name VARCHAR, formula TEXT, optimization_direction VARCHAR {maximize,minimize})"
-
-    columns:
-      metric_id:
-        retrieval_text: уникальный идентификатор метрики, первичный ключ
-      task_type_id:
-        retrieval_text: FK на task_type — тип задачи к которому относится метрика
-      name:
-        retrieval_text: название метрики например logloss accuracy f1-score rmse auc
-      formula:
-        retrieval_text: математическая формула вычисления метрики
-      optimization_direction:
-        retrieval_text: направление оптимизации метрики maximize (больше лучше) или minimize (меньше лучше)
-
-    examples:
-      - query: Метрики для задач классификации с количеством использований в соревнованиях
-        answer: >
-          SELECT m.name, COUNT(cc.competition_id) AS usage_count
-          FROM metric m
-          JOIN task_type t ON m.task_type_id = t.task_type_id
-          LEFT JOIN competition_config cc ON m.metric_id = cc.metric_id
-          WHERE t.code = 'classification'
-          GROUP BY m.name;
-
-      - query: Все метрики которые нужно максимизировать
-        answer: >
-          SELECT name, formula
-          FROM metric
-          WHERE optimization_direction = 'maximize';
-
-      - query: Средний score участников по каждой метрике
-        answer: >
-          SELECT m.name, AVG(lr.score) AS avg_score
-          FROM metric m
-          JOIN competition_config cc ON m.metric_id = cc.metric_id
-          JOIN participation p ON cc.competition_id = p.competition_id
-          JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          GROUP BY m.name;
-
-
-  competition:
-    retrieval_text: >
-      Соревнования по машинному обучению — основная бизнес-сущность платформы.
-      Хранит: название (title) соревнования, статус (active/finished/draft), даты начала и конца,
-      организатора и тип задачи.
-      Фильтрация по названию: WHERE c.title ILIKE '%House Price%' — используй competition.title.
-      Связана с участниками через participation, с призами через prize,
-      с настройками через competition_config, с данными через dataset.
-      Запросы: активные соревнования, завершённые конкурсы, турниры по классификации,
-      соревнования конкретного организатора, топ по участникам, длительность,
-      соревнование по названию, поиск по названию конкурса датасета турнира.
-
-    context_text: "competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic', start_at TIMESTAMPTZ, end_at TIMESTAMPTZ, status VARCHAR {active,finished,draft})"
-
-    columns:
-      competition_id:
-        retrieval_text: уникальный идентификатор соревнования, первичный ключ
-      organizer_id:
-        retrieval_text: FK на user.user_id — пользователь организовавший соревнование
-      task_type_id:
-        retrieval_text: FK на task_type.task_type_id — тип ML задачи соревнования
-      title:
-        retrieval_text: название соревнования конкурса турнира
-      start_at:
-        retrieval_text: дата и время начала соревнования
-      end_at:
-        retrieval_text: дата и время окончания соревнования
-      status:
-        retrieval_text: статус соревнования active (активное) finished (завершённое) draft (черновик)
-
-    examples:
-      - query: Активные соревнования с количеством участников и средним скором
-        answer: >
-          SELECT c.title,
-                 COUNT(DISTINCT p.participation_id) AS participants,
-                 AVG(lr.score) AS avg_score
-          FROM competition c
-          LEFT JOIN participation p ON c.competition_id = p.competition_id
-          LEFT JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          WHERE c.status = 'active'
-          GROUP BY c.title;
-
-      - query: Соревнования по классификации с призовым фондом больше 5000
-        answer: >
-          SELECT DISTINCT c.title
-          FROM competition c
-          JOIN prize pr ON c.competition_id = pr.competition_id
-          JOIN task_type t ON c.task_type_id = t.task_type_id
-          WHERE t.code = 'classification'
-          GROUP BY c.title
-          HAVING SUM(pr.amount) > 5000;
-
-      - query: Наименьший MSE среди участников соревнования House Price для задачи регрессии
-        answer: >
-          SELECT MIN(lr.score) AS min_mse
-          FROM competition c
-          JOIN task_type t ON c.task_type_id = t.task_type_id
-          JOIN competition_config cc ON cc.competition_id = c.competition_id
-          JOIN metric m ON m.metric_id = cc.metric_id
-          JOIN participation p ON p.competition_id = c.competition_id
-          JOIN leaderboard_row lr ON lr.participation_id = p.participation_id
-          WHERE t.code = 'regression'
-            AND m.name ILIKE '%mse%'
-            AND c.title ILIKE '%House Price%';
-
-      - query: Самые длительные соревнования платформы
-        answer: >
-          SELECT title, (end_at - start_at) AS duration
-          FROM competition
-          ORDER BY duration DESC
-          LIMIT 10;
-
-      - query: Соревнования которые завершились в этом году
-        answer: >
-          SELECT title, end_at
-          FROM competition
-          WHERE status = 'finished'
-          AND EXTRACT(YEAR FROM end_at) = EXTRACT(YEAR FROM NOW())
-          ORDER BY end_at DESC;
-
-
-  competition_config:
-    retrieval_text: >
-      Настройки и параметры соревнования: какая метрика используется для оценки,
-      правило агрегации результатов (best/mean/last), лимит отправок в день.
-      Связывает соревнование с метрикой оценки.
-      Запросы: лимит отправок, правило агрегации best или mean,
-      метрика конкретного соревнования, настройки оценивания.
-
-    context_text: "competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best,mean,last}, max_daily_submissions INT)"
-
-    columns:
-      config_id:
-        retrieval_text: уникальный идентификатор конфигурации, первичный ключ
-      competition_id:
-        retrieval_text: FK на competition.competition_id — соревнование к которому относится конфиг
-      metric_id:
-        retrieval_text: FK на metric.metric_id — метрика оценки решений в данном соревновании
-      aggregation_rule:
-        retrieval_text: правило агрегации результатов best (лучший) mean (среднее) last (последний)
-      max_daily_submissions:
-        retrieval_text: максимальное количество отправок в день лимит сабмитов
-
-    examples:
-      - query: Соревнования с правилом агрегации best и метрикой logloss
-        answer: >
-          SELECT c.title, cc.aggregation_rule, m.name
-          FROM competition_config cc
-          JOIN competition c ON cc.competition_id = c.competition_id
-          JOIN metric m ON cc.metric_id = m.metric_id
-          WHERE cc.aggregation_rule = 'best'
-          AND m.name ILIKE '%logloss%';
-
-      - query: Соревнования с наименьшим лимитом отправок в день
-        answer: >
-          SELECT c.title, cc.max_daily_submissions
-          FROM competition_config cc
-          JOIN competition c ON cc.competition_id = c.competition_id
-          ORDER BY cc.max_daily_submissions ASC
-          LIMIT 10;
-
-      - query: Какая метрика используется в каждом активном соревновании
-        answer: >
-          SELECT c.title, m.name AS metric, cc.aggregation_rule
-          FROM competition c
-          JOIN competition_config cc ON c.competition_id = cc.competition_id
-          JOIN metric m ON cc.metric_id = m.metric_id
-          WHERE c.status = 'active';
-
-
-  prize:
-    retrieval_text: >
-      Призовой фонд соревнований: сумма и валюта приза.
-      Одно соревнование может иметь несколько призовых позиций.
-      Используется для ранжирования соревнований по привлекательности.
-      Запросы: призовой фонд, топ соревнований по деньгам, сумма наград,
-      соревнования с призом больше N, валюта приза.
-
-    context_text: "prize(prize_id BIGINT PK, competition_id BIGINT FK→competition, amount NUMERIC, currency VARCHAR)"
-
-    columns:
-      prize_id:
-        retrieval_text: уникальный идентификатор приза, первичный ключ
-      competition_id:
-        retrieval_text: FK на competition.competition_id — соревнование к которому относится приз
-      amount:
-        retrieval_text: сумма приза денежное вознаграждение размер фонда
-      currency:
-        retrieval_text: валюта приза например USD EUR RUB
-
-    examples:
-      - query: Топ 5 соревнований по общему призовому фонду
-        answer: >
-          SELECT c.title, SUM(pr.amount) AS total_prize
-          FROM competition c
-          JOIN prize pr ON c.competition_id = pr.competition_id
-          GROUP BY c.title
-          ORDER BY total_prize DESC
-          LIMIT 5;
-
-      - query: Соревнования с призовым фондом больше 10000 долларов
-        answer: >
-          SELECT c.title, SUM(pr.amount) AS prize_pool, pr.currency
-          FROM competition c
-          JOIN prize pr ON c.competition_id = pr.competition_id
-          WHERE pr.currency = 'USD'
-          GROUP BY c.title, pr.currency
-          HAVING SUM(pr.amount) > 10000;
-
-      - query: Средний призовой фонд по типам задач
-        answer: >
-          SELECT tt.code, AVG(prize_total) AS avg_prize
-          FROM task_type tt
-          JOIN competition c ON tt.task_type_id = c.task_type_id
-          JOIN (
-            SELECT competition_id, SUM(amount) AS prize_total
-            FROM prize GROUP BY competition_id
-          ) p ON c.competition_id = p.competition_id
-          GROUP BY tt.code;
-
-
-  participation:
-    retrieval_text: >
-      Участие пользователя в соревновании — связующая таблица user и competition.
-      Фиксирует факт регистрации участника, статус участия и дату регистрации.
-      Через participation связаны все активности участника: отправки, оценки,
-      позиция в рейтинге, написанные ноутбуки.
-      Запросы: участники соревнования, соревнования пользователя,
-      зарегистрированные участники, статус участия, количество участников.
-
-    context_text: "participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, registered_at TIMESTAMPTZ, status VARCHAR {active,withdrawn})"
-
-    columns:
-      participation_id:
-        retrieval_text: уникальный идентификатор участия, первичный ключ, связывает пользователя и соревнование
-      user_id:
-        retrieval_text: FK на user.user_id — участник пользователь
-      competition_id:
-        retrieval_text: FK на competition.competition_id — соревнование в котором участвует пользователь
+      password_hash:
+        retrieval_text: хеш пароля
       registered_at:
-        retrieval_text: дата и время регистрации участника в соревновании
-      status:
-        retrieval_text: статус участия active (активный) disqualified (дисквалифицирован) withdrawn (вышел)
+        retrieval_text: дата и время регистрации
 
     examples:
-      - query: Количество участников в каждом активном соревновании
+      - query: Сколько пользователей зарегистрировано
         answer: >
-          SELECT c.title, COUNT(p.participation_id) AS participants_count
-          FROM competition c
-          JOIN participation p ON c.competition_id = p.competition_id
-          WHERE c.status = 'active'
-          GROUP BY c.title
-          ORDER BY participants_count DESC;
+          SELECT COUNT(*) AS user_count
+          FROM "user";
 
-      - query: Пользователи участвовавшие более чем в трёх соревнованиях
+      - query: Организаторы соревнований с числом соревнований
         answer: >
-          SELECT u.username, COUNT(p.competition_id) AS competitions_count
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          GROUP BY u.username
-          HAVING COUNT(p.competition_id) > 3;
-
-      - query: Участники соревнований с метрикой logloss и более 10 успешных отправок
-        answer: >
-          SELECT DISTINCT u.username
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          JOIN competition c ON p.competition_id = c.competition_id
-          JOIN competition_config cc ON c.competition_id = cc.competition_id
-          JOIN metric m ON cc.metric_id = m.metric_id
-          JOIN submission s ON p.participation_id = s.participation_id
-          WHERE m.name ILIKE '%logloss%'
-          AND s.status = 'success'
-          GROUP BY u.username
-          HAVING COUNT(s.submission_id) > 10;
-
-
-  dataset:
-    retrieval_text: >
-      Наборы данных соревнований: train, test, validation датасеты.
-      Хранит метаданные: тип использования, открытость, дату создания.
-      Не содержит сами файлы — только ссылки, физические файлы в file_artifact.
-      Запросы: датасеты соревнования, открытые данные, тренировочные наборы,
-      скрытые датасеты, размер данных, количество файлов.
-
-    context_text: "dataset(dataset_id BIGINT PK, competition_id BIGINT FK→competition, usage_type VARCHAR {train,test,validation}, is_hidden BOOLEAN, created_at TIMESTAMPTZ)"
-
-    columns:
-      dataset_id:
-        retrieval_text: уникальный идентификатор датасета, первичный ключ
-      competition_id:
-        retrieval_text: FK на competition.competition_id — соревнование которому принадлежит датасет
-      usage_type:
-        retrieval_text: тип использования датасета train (обучение) test (тест) validation (валидация)
-      is_hidden:
-        retrieval_text: скрытый ли датасет от участников, true — скрытый тестовый, false — открытый
-      created_at:
-        retrieval_text: дата создания датасета добавления данных
-
-    examples:
-      - query: Открытые датасеты активных соревнований
-        answer: >
-          SELECT c.title, d.usage_type, d.created_at
-          FROM dataset d
-          JOIN competition c ON d.competition_id = c.competition_id
-          WHERE d.is_hidden = false
-          AND c.status = 'active';
-
-      - query: Датасеты с суммарным размером файлов больше 1 гигабайта
-        answer: >
-          SELECT d.dataset_id, d.usage_type, SUM(f.size_bytes) AS total_size
-          FROM dataset d
-          JOIN file_artifact f ON d.dataset_id = f.dataset_id
-          GROUP BY d.dataset_id, d.usage_type
-          HAVING SUM(f.size_bytes) > 1073741824;
-
-      - query: Количество датасетов по каждому соревнованию
-        answer: >
-          SELECT c.title, COUNT(d.dataset_id) AS datasets_count
-          FROM competition c
-          LEFT JOIN dataset d ON c.competition_id = d.competition_id
-          GROUP BY c.title;
-
-      - query: Соревнования у которых есть хотя бы один датасет с минимум 3 файлами
-        answer: >
-          SELECT DISTINCT c.title
-          FROM competition c
-          JOIN dataset d ON c.competition_id = d.competition_id
-          WHERE (
-            SELECT COUNT(*) FROM file_artifact fa WHERE fa.dataset_id = d.dataset_id
-          ) >= 3;
-
-
-  file_artifact:
-    retrieval_text: >
-      Физические файлы датасетов хранящиеся в storage системе.
-      Содержит имя файла и размер в байтах.
-      Связан с датасетом через dataset_id.
-      Запросы: файлы датасета, самые большие файлы, размер данных,
-      файлы конкретного соревнования, имена файлов.
-
-    context_text: "file_artifact(file_id BIGINT PK, dataset_id BIGINT FK→dataset, filename VARCHAR, size_bytes BIGINT)"
-
-    columns:
-      file_id:
-        retrieval_text: уникальный идентификатор файла, первичный ключ
-      dataset_id:
-        retrieval_text: FK на dataset.dataset_id — датасет к которому принадлежит файл
-      filename:
-        retrieval_text: имя файла название файла
-      size_bytes:
-        retrieval_text: размер файла в байтах вес файла объём данных
-
-    examples:
-      - query: Самые большие файлы активных соревнований
-        answer: >
-          SELECT c.title, fa.filename, fa.size_bytes
-          FROM competition c
-          JOIN dataset d ON c.competition_id = d.competition_id
-          JOIN file_artifact fa ON d.dataset_id = fa.dataset_id
-          WHERE c.status = 'active'
-          ORDER BY fa.size_bytes DESC
-          LIMIT 20;
-
-      - query: Общий размер данных по каждому соревнованию
-        answer: >
-          SELECT c.title, SUM(fa.size_bytes) AS total_bytes
-          FROM competition c
-          JOIN dataset d ON c.competition_id = d.competition_id
-          JOIN file_artifact fa ON d.dataset_id = fa.dataset_id
-          GROUP BY c.title
-          ORDER BY total_bytes DESC;
-
-      - query: Датасеты в которых количество файлов не менее трёх
-        answer: >
-          SELECT d.dataset_id, d.usage_type, COUNT(fa.file_id) AS file_count
-          FROM dataset d
-          JOIN file_artifact fa ON d.dataset_id = fa.dataset_id
-          GROUP BY d.dataset_id, d.usage_type
-          HAVING COUNT(fa.file_id) >= 3;
-
-
-  submission:
-    retrieval_text: >
-      Отправки решений участников на проверку — сабмиты.
-      Фиксирует время отправки и статус: success (принято), failed (ошибка), pending (в обработке).
-      Связана с participation и через evaluation с результатами оценки.
-      Запросы: отправки участника, количество сабмитов, успешные отправки,
-      последняя отправка, отправки за период, статус отправки.
-
-    context_text: "submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, submitted_at TIMESTAMPTZ, status VARCHAR {success,failed,pending})"
-
-    columns:
-      submission_id:
-        retrieval_text: уникальный идентификатор отправки сабмита, первичный ключ
-      participation_id:
-        retrieval_text: FK на participation.participation_id — участие в рамках которого сделана отправка
-      submitted_at:
-        retrieval_text: дата и время отправки решения сабмита
-      status:
-        retrieval_text: статус отправки success (успешно принято) failed (ошибка) pending (обрабатывается)
-
-    examples:
-      - query: Количество успешных отправок по каждому участнику соревнования
-        answer: >
-          SELECT u.username, COUNT(s.submission_id) AS success_count
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          JOIN submission s ON p.participation_id = s.participation_id
-          WHERE s.status = 'success'
-          GROUP BY u.username
-          ORDER BY success_count DESC;
-
-      - query: Участники превысившие дневной лимит отправок
-        answer: >
-          SELECT u.username, DATE(s.submitted_at) AS day, COUNT(s.submission_id) AS daily_count
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          JOIN submission s ON p.participation_id = s.participation_id
-          JOIN competition_config cc ON p.competition_id = cc.competition_id
-          GROUP BY u.username, DATE(s.submitted_at), cc.max_daily_submissions
-          HAVING COUNT(s.submission_id) > cc.max_daily_submissions;
-
-      - query: Последние отправки по каждому участнику
-        answer: >
-          SELECT p.participation_id, MAX(s.submitted_at) AS last_submission
-          FROM participation p
-          JOIN submission s ON p.participation_id = s.participation_id
-          GROUP BY p.participation_id;
-
-
-  evaluation:
-    retrieval_text: >
-      Результаты оценки отправок системой scoring engine.
-      Хранит числовое значение метрики и время вычисления.
-      Связана с submission через submission_id.
-      Через leaderboard_row хранится лучший результат участника.
-      Запросы: оценка отправки, значение метрики, результат scoring,
-      лучший score участника, история оценок.
-
-    context_text: "evaluation(evaluation_id BIGINT PK, submission_id BIGINT FK→submission, metric_value FLOAT, computed_at TIMESTAMPTZ)"
-
-    columns:
-      evaluation_id:
-        retrieval_text: уникальный идентификатор оценки результата, первичный ключ
-      submission_id:
-        retrieval_text: FK на submission.submission_id — отправка которая была оценена
-      metric_value:
-        retrieval_text: числовое значение метрики результат оценки score качество модели
-      computed_at:
-        retrieval_text: дата и время когда была вычислена оценка
-
-    examples:
-      - query: Лучший результат метрики для каждого участника
-        answer: >
-          SELECT p.user_id, MAX(e.metric_value) AS best_score
-          FROM participation p
-          JOIN submission s ON p.participation_id = s.participation_id
-          JOIN evaluation e ON s.submission_id = e.submission_id
-          GROUP BY p.user_id;
-
-      - query: Динамика улучшения score участника по времени
-        answer: >
-          SELECT s.submitted_at, e.metric_value
-          FROM submission s
-          JOIN evaluation e ON s.submission_id = e.submission_id
-          WHERE s.participation_id = :participation_id
-          ORDER BY s.submitted_at ASC;
-
-      - query: Средний score участников соревнований по регрессии с метрикой MSE
-        answer: >
-          SELECT c.title, AVG(lr.score) AS avg_mse
-          FROM competition c
-          JOIN task_type t ON c.task_type_id = t.task_type_id
-          JOIN competition_config cc ON cc.competition_id = c.competition_id
-          JOIN metric m ON m.metric_id = cc.metric_id
-          JOIN participation p ON p.competition_id = c.competition_id
-          JOIN leaderboard_row lr ON lr.participation_id = p.participation_id
-          WHERE t.code = 'regression'
-            AND m.name ILIKE '%mse%'
-          GROUP BY c.title;
-
-
-  leaderboard_row:
-    retrieval_text: >
-      Таблица лидеров рейтинг участников соревнования.
-      Хранит лучший результат участника, его позицию (rank) и ссылку на лучшую оценку.
-      Определяет итоговое место в соревновании.
-      Запросы: топ участников, рейтинг, лидерборд, первое место, позиция участника,
-      лучший score, ранжирование по результатам.
-
-    context_text: "leaderboard_row(participation_id BIGINT PK FK→participation, best_evaluation_id BIGINT FK→evaluation, score FLOAT -- канонический лучший результат участника предпочтительнее evaluation.metric_value для AVG MIN MAX, rank INT -- позиция в рейтинге)"
-
-    columns:
-      participation_id:
-        retrieval_text: FK на participation.participation_id — участие пользователя в соревновании
-      best_evaluation_id:
-        retrieval_text: FK на evaluation.evaluation_id — лучшая оценка участника определяющая его позицию
-      score:
-        retrieval_text: лучший score участника итоговый результат значение метрики в рейтинге
-      rank:
-        retrieval_text: место в рейтинге позиция участника в таблице лидеров leaderboard
-
-    examples:
-      - query: Топ 10 участников в активных соревнованиях
-        answer: >
-          SELECT u.username, c.title, lr.score, lr.rank
-          FROM leaderboard_row lr
-          JOIN participation p ON lr.participation_id = p.participation_id
-          JOIN user u ON p.user_id = u.user_id
-          JOIN competition c ON p.competition_id = c.competition_id
-          WHERE c.status = 'active'
-          AND lr.rank <= 10
-          ORDER BY c.title, lr.rank;
-
-      - query: Участники занявшие первое место хотя бы в одном соревновании
-        answer: >
-          SELECT DISTINCT u.username
-          FROM user u
-          JOIN participation p ON u.user_id = p.user_id
-          JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          WHERE lr.rank = 1;
-
-      - query: Средний score по соревнованиям для топ 3 участников
-        answer: >
-          SELECT c.title, AVG(lr.score) AS avg_top3_score
-          FROM competition c
-          JOIN participation p ON c.competition_id = p.competition_id
-          JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          WHERE lr.rank <= 3
-          GROUP BY c.title;
-
-
-  code_kernel:
-    retrieval_text: >
-      Ноутбуки и скрипты участников соревнований — computational artifacts.
-      Хранит язык программирования и дату создания.
-      Связан с participation — принадлежит конкретному участию в соревновании.
-      Запросы: Python ноутбуки, керналы участника, популярные языки,
-      ноутбуки топ участников, языки программирования, скрипты решений.
-
-    context_text: "code_kernel(kernel_id BIGINT PK, participation_id BIGINT FK→participation, language VARCHAR {Python,R,Julia}, created_at TIMESTAMPTZ)"
-
-    columns:
-      kernel_id:
-        retrieval_text: уникальный идентификатор ноутбука скрипта кернала, первичный ключ
-      participation_id:
-        retrieval_text: FK на participation.participation_id — участие в рамках которого создан ноутбук
-      language:
-        retrieval_text: язык программирования ноутбука Python R Julia SQL
-      created_at:
-        retrieval_text: дата и время создания ноутбука скрипта
-
-    examples:
-      - query: Python ноутбуки участников из топ 10 рейтинга
-        answer: >
-          SELECT u.username, lr.rank, ck.created_at
-          FROM code_kernel ck
-          JOIN participation p ON ck.participation_id = p.participation_id
-          JOIN leaderboard_row lr ON p.participation_id = lr.participation_id
-          JOIN user u ON p.user_id = u.user_id
-          WHERE ck.language = 'Python'
-          AND lr.rank <= 10
-          ORDER BY lr.rank;
-
-      - query: Популярность языков программирования на платформе
-        answer: >
-          SELECT language, COUNT(*) AS kernels_count
-          FROM code_kernel
-          GROUP BY language
-          ORDER BY kernels_count DESC;
-
-      - query: Соревнования с наибольшим количеством Python ноутбуков
-        answer: >
-          SELECT c.title, COUNT(ck.kernel_id) AS python_kernels
-          FROM competition c
-          JOIN participation p ON c.competition_id = p.competition_id
-          JOIN code_kernel ck ON p.participation_id = ck.participation_id
-          WHERE ck.language = 'Python'
-          GROUP BY c.title
-          ORDER BY python_kernels DESC;
-
+          SELECT u.user_id, u.username, COUNT(c.competition_id) AS competitions_count
+          FROM "user" u
+          JOIN competition c ON u.user_id = c.organizer_id
+          GROUP BY u.user_id, u.username
+          ORDER BY competitions_count DESC;
 
   role:
     retrieval_text: >
       Справочник ролей пользователей платформы.
-      Хранит имя роли и её описание.
       Используется для управления правами и сегментации пользователей.
 
     context_text: "role(role_id SERIAL PK, name VARCHAR(30) UNIQUE, description TEXT)"
@@ -747,151 +52,535 @@ tables:
       role_id:
         retrieval_text: уникальный идентификатор роли, первичный ключ
       name:
-        retrieval_text: короткое имя роли (например admin, organizer, participant)
+        retrieval_text: короткое имя роли
       description:
-        retrieval_text: текстовое описание назначения роли
+        retrieval_text: текстовое описание роли
 
     examples:
-      - query: Список всех ролей
+      - query: Список ролей
         answer: >
-          SELECT r.role_id, r.name, r.description
-          FROM role r
-          ORDER BY r.name;
+          SELECT role_id, name, description
+          FROM role
+          ORDER BY role_id;
 
-
-  dataset_purpose:
+  task_type:
     retrieval_text: >
-      Справочник назначения датасета.
-      Определяет тип использования набора данных (train, test, validation и др.).
+      Справочник типов задач машинного обучения: classification, regression,
+      ranking, detection, nlp, clustering.
+      Связан с соревнованием через configuration.task_type_id.
 
-    context_text: "dataset_purpose(purpose_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
+    context_text: "task_type(task_type_id BIGINT PK, code VARCHAR, description TEXT, answer_format VARCHAR, validation_schema JSON, created_at TIMESTAMP)"
 
     columns:
-      purpose_id:
-        retrieval_text: уникальный идентификатор назначения датасета, первичный ключ
-      name:
-        retrieval_text: краткое имя назначения датасета
+      task_type_id:
+        retrieval_text: уникальный идентификатор типа задачи
+      code:
+        retrieval_text: код типа задачи
       description:
-        retrieval_text: текстовое описание назначения датасета
+        retrieval_text: описание типа задачи
+      answer_format:
+        retrieval_text: допустимый формат ответа
+      validation_schema:
+        retrieval_text: схема валидации ответа
+      created_at:
+        retrieval_text: время создания
 
     examples:
-      - query: Какие типы назначения датасетов поддерживаются
+      - query: Типы задач используемые в конфигурациях соревнований
         answer: >
-          SELECT dp.purpose_id, dp.name, dp.description
-          FROM dataset_purpose dp
-          ORDER BY dp.name;
+          SELECT tt.code, COUNT(cfg.configuration_id) AS used_in_competitions
+          FROM task_type tt
+          LEFT JOIN configuration cfg ON cfg.task_type_id = tt.task_type_id
+          GROUP BY tt.code
+          ORDER BY used_in_competitions DESC;
 
-
-  team_role:
+  metric:
     retrieval_text: >
-      Справочник ролей участников команды.
-      Используется для описания ролей внутри командного участия.
+      Метрики оценки качества ML-моделей: accuracy, f1, rmse, auc и др.
+      Используются в соревнованиях через configuration.metric_id.
+      Каждая метрика имеет направление оптимизации (max/min).
 
-    context_text: "team_role(team_role_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
+    context_text: "metric(metric_id BIGINT PK, name VARCHAR, formula TEXT, optimization_dir VARCHAR(3), description TEXT, created_at TIMESTAMP)"
 
     columns:
-      team_role_id:
-        retrieval_text: уникальный идентификатор роли в команде, первичный ключ
+      metric_id:
+        retrieval_text: уникальный идентификатор метрики
       name:
-        retrieval_text: краткое имя роли в команде (например owner, member)
+        retrieval_text: имя метрики
+      formula:
+        retrieval_text: формула вычисления метрики
+      optimization_dir:
+        retrieval_text: направление оптимизации max/min
       description:
-        retrieval_text: текстовое описание роли в команде
+        retrieval_text: пояснение по метрике
+      created_at:
+        retrieval_text: дата создания записи метрики
 
     examples:
-      - query: Роли в командах
+      - query: Метрики с направлением оптимизации max
         answer: >
-          SELECT tr.team_role_id, tr.name, tr.description
-          FROM team_role tr
-          ORDER BY tr.name;
+          SELECT metric_id, name
+          FROM metric
+          WHERE optimization_dir = 'max'
+          ORDER BY metric_id;
 
+      - query: Средний лучший score по метрикам
+        answer: >
+          SELECT m.name, AVG(p.best_score) AS avg_best_score
+          FROM metric m
+          JOIN configuration cfg ON cfg.metric_id = m.metric_id
+          JOIN participation p ON p.competition_id = cfg.competition_id
+          WHERE p.best_score IS NOT NULL
+          GROUP BY m.name
+          ORDER BY avg_best_score DESC;
 
   competition_status:
     retrieval_text: >
-      Справочник статусов соревнований.
-      Хранит нормализованные значения статуса (active, finished, draft и т.д.).
+      Справочник статусов соревнований: draft, active, finished и т.д.
 
     context_text: "competition_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
 
     columns:
       status_id:
-        retrieval_text: уникальный идентификатор статуса соревнования, первичный ключ
+        retrieval_text: идентификатор статуса соревнования
       name:
-        retrieval_text: краткое имя статуса соревнования
+        retrieval_text: код статуса
       description:
-        retrieval_text: описание статуса соревнования
+        retrieval_text: описание статуса
 
     examples:
       - query: Доступные статусы соревнований
         answer: >
-          SELECT cs.status_id, cs.name, cs.description
-          FROM competition_status cs
-          ORDER BY cs.status_id;
+          SELECT status_id, name, description
+          FROM competition_status
+          ORDER BY status_id;
 
+  competition:
+    retrieval_text: >
+      Соревнования по машинному обучению — основная бизнес-сущность платформы.
+      Хранит название, статус, даты начала/конца, организатора.
+      Связана с participation, configuration, team и competition_dataset.
+
+    context_text: "competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50), description TEXT, starts_at TIMESTAMP, ends_at TIMESTAMP)"
+
+    columns:
+      competition_id:
+        retrieval_text: уникальный идентификатор соревнования
+      organizer_id:
+        retrieval_text: FK на пользователя-организатора
+      status_id:
+        retrieval_text: FK на competition_status
+      title:
+        retrieval_text: название соревнования
+      description:
+        retrieval_text: текстовое описание соревнования
+      starts_at:
+        retrieval_text: время начала соревнования
+      ends_at:
+        retrieval_text: время окончания соревнования
+
+    examples:
+      - query: Активные соревнования с числом участников
+        answer: >
+          SELECT c.competition_id, c.title, COUNT(p.participation_id) AS participants_count
+          FROM competition c
+          LEFT JOIN participation p ON p.competition_id = c.competition_id
+          WHERE c.status_id = (SELECT status_id FROM competition_status WHERE name = 'active')
+          GROUP BY c.competition_id, c.title
+          ORDER BY participants_count DESC;
+
+      - query: Соревнования завершенные в текущем году
+        answer: >
+          SELECT competition_id, title, ends_at
+          FROM competition
+          WHERE status_id = (SELECT status_id FROM competition_status WHERE name = 'finished')
+            AND EXTRACT(YEAR FROM ends_at) = EXTRACT(YEAR FROM NOW())
+          ORDER BY ends_at DESC;
+
+  configuration:
+    retrieval_text: >
+      Конфигурация соревнования: метрика, тип задачи и лимит отправок в день.
+      Это актуальная таблица конфигурации соревнования.
+
+    context_text: "configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT)"
+
+    columns:
+      configuration_id:
+        retrieval_text: уникальный идентификатор конфигурации
+      competition_id:
+        retrieval_text: FK на competition
+      metric_id:
+        retrieval_text: FK на metric
+      task_type_id:
+        retrieval_text: FK на task_type
+      daily_attempt_limit:
+        retrieval_text: суточный лимит отправок
+
+    examples:
+      - query: Лимиты отправок по соревнованиям
+        answer: >
+          SELECT c.title, cfg.daily_attempt_limit
+          FROM configuration cfg
+          JOIN competition c ON c.competition_id = cfg.competition_id
+          ORDER BY cfg.daily_attempt_limit ASC;
+
+  dataset_purpose:
+    retrieval_text: >
+      Справочник назначения датасета (train, test, validation, private/public и т.п.).
+
+    context_text: "dataset_purpose(purpose_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
+
+    columns:
+      purpose_id:
+        retrieval_text: идентификатор назначения датасета
+      name:
+        retrieval_text: код назначения
+      description:
+        retrieval_text: описание назначения
+
+    examples:
+      - query: Список назначений датасетов
+        answer: >
+          SELECT purpose_id, name
+          FROM dataset_purpose
+          ORDER BY purpose_id;
+
+  dataset:
+    retrieval_text: >
+      Наборы данных платформы.
+      Хранит назначение, имя, признак скрытости, версию.
+      Соревнование связывается через competition_dataset.
+
+    context_text: "dataset(dataset_id BIGINT PK, purpose_id BIGINT FK→dataset_purpose, name VARCHAR(30), is_hidden BOOLEAN, version SMALLINT)"
+
+    columns:
+      dataset_id:
+        retrieval_text: идентификатор датасета
+      purpose_id:
+        retrieval_text: FK на dataset_purpose
+      name:
+        retrieval_text: имя датасета
+      is_hidden:
+        retrieval_text: скрыт ли датасет
+      version:
+        retrieval_text: версия датасета
+
+    examples:
+      - query: Скрытые датасеты
+        answer: >
+          SELECT dataset_id, name, version
+          FROM dataset
+          WHERE is_hidden = TRUE
+          ORDER BY dataset_id;
+
+      - query: Количество датасетов в каждом соревновании
+        answer: >
+          SELECT c.competition_id, c.title, COUNT(cd.dataset_id) AS datasets_count
+          FROM competition c
+          LEFT JOIN competition_dataset cd ON cd.competition_id = c.competition_id
+          GROUP BY c.competition_id, c.title
+          ORDER BY datasets_count DESC;
+
+  dataset_file:
+    retrieval_text: >
+      Файлы датасетов хранящиеся в storage.
+      Содержит имя файла, путь, размер и контрольную сумму.
+      Это актуальная таблица хранения файлов датасетов.
+
+    context_text: "dataset_file(file_id BIGINT PK, dataset_id BIGINT FK→dataset, filename VARCHAR(50), storage_path TEXT, size_bytes BIGINT, checksum VARCHAR(64) NULL)"
+
+    columns:
+      file_id:
+        retrieval_text: идентификатор файла
+      dataset_id:
+        retrieval_text: FK на dataset
+      filename:
+        retrieval_text: имя файла
+      storage_path:
+        retrieval_text: путь хранения файла
+      size_bytes:
+        retrieval_text: размер файла в байтах
+      checksum:
+        retrieval_text: контрольная сумма
+
+    examples:
+      - query: Топ 20 самых больших файлов
+        answer: >
+          SELECT file_id, filename, size_bytes
+          FROM dataset_file
+          ORDER BY size_bytes DESC
+          LIMIT 20;
 
   team_status:
     retrieval_text: >
-      Справочник статусов команд.
-      Нормализует жизненный цикл команды (active, archived, blocked и т.д.).
+      Справочник статусов команды.
 
     context_text: "team_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
 
     columns:
       status_id:
-        retrieval_text: уникальный идентификатор статуса команды, первичный ключ
+        retrieval_text: идентификатор статуса команды
       name:
-        retrieval_text: краткое имя статуса команды
+        retrieval_text: код статуса команды
       description:
-        retrieval_text: описание статуса команды
+        retrieval_text: описание статуса
 
     examples:
-      - query: Справочник статусов команд
+      - query: Статусы команд
         answer: >
-          SELECT ts.status_id, ts.name, ts.description
-          FROM team_status ts
-          ORDER BY ts.status_id;
+          SELECT status_id, name
+          FROM team_status
+          ORDER BY status_id;
 
+  team:
+    retrieval_text: >
+      Команды участников в соревнованиях.
+
+    context_text: "team(team_id BIGINT PK, competition_id BIGINT FK→competition, status_id BIGINT FK→team_status, name VARCHAR(30), created_at TIMESTAMP)"
+
+    columns:
+      team_id:
+        retrieval_text: идентификатор команды
+      competition_id:
+        retrieval_text: FK на competition
+      status_id:
+        retrieval_text: FK на team_status
+      name:
+        retrieval_text: название команды
+      created_at:
+        retrieval_text: время создания команды
+
+    examples:
+      - query: Команды и количество участников
+        answer: >
+          SELECT t.team_id, t.name, COUNT(tm.member_id) AS members_count
+          FROM team t
+          LEFT JOIN team_member tm ON tm.team_id = t.team_id
+          GROUP BY t.team_id, t.name
+          ORDER BY members_count DESC;
+
+  team_role:
+    retrieval_text: >
+      Справочник ролей в команде.
+
+    context_text: "team_role(team_role_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
+
+    columns:
+      team_role_id:
+        retrieval_text: идентификатор роли в команде
+      name:
+        retrieval_text: код роли
+      description:
+        retrieval_text: описание роли
+
+    examples:
+      - query: Роли участников команды
+        answer: >
+          SELECT team_role_id, name
+          FROM team_role
+          ORDER BY team_role_id;
 
   participation_status:
     retrieval_text: >
       Справочник статусов участия в соревновании.
-      Нормализует состояние участия (active, withdrawn и т.д.).
 
     context_text: "participation_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
 
     columns:
       status_id:
-        retrieval_text: уникальный идентификатор статуса участия, первичный ключ
+        retrieval_text: идентификатор статуса участия
       name:
-        retrieval_text: краткое имя статуса участия
+        retrieval_text: код статуса
       description:
-        retrieval_text: описание статуса участия
+        retrieval_text: описание статуса
 
     examples:
-      - query: Доступные статусы участия
+      - query: Статусы участия
         answer: >
-          SELECT ps.status_id, ps.name, ps.description
-          FROM participation_status ps
-          ORDER BY ps.status_id;
+          SELECT status_id, name
+          FROM participation_status
+          ORDER BY status_id;
 
+  participation:
+    retrieval_text: >
+      Участие пользователя в соревновании.
+      В актуальной DDL хранит агрегированную аналитику best_score и rank.
+      Рейтинг и лучший результат участника хранятся прямо в participation.
+
+    context_text: "participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_score NUMERIC(12,6) NULL, rank SMALLINT NULL, registered_at TIMESTAMP)"
+
+    columns:
+      participation_id:
+        retrieval_text: идентификатор участия
+      user_id:
+        retrieval_text: FK на user
+      competition_id:
+        retrieval_text: FK на competition
+      status_id:
+        retrieval_text: FK на participation_status
+      team_id:
+        retrieval_text: FK на team, может быть NULL
+      best_score:
+        retrieval_text: лучший результат участника
+      rank:
+        retrieval_text: место участника
+      registered_at:
+        retrieval_text: дата регистрации участия
+
+    examples:
+      - query: Топ 10 участников по best_score в активных соревнованиях
+        answer: >
+          SELECT c.title, p.participation_id, p.best_score, p.rank
+          FROM participation p
+          JOIN competition c ON c.competition_id = p.competition_id
+          WHERE c.status_id = (SELECT status_id FROM competition_status WHERE name = 'active')
+            AND p.best_score IS NOT NULL
+          ORDER BY p.best_score DESC
+          LIMIT 10;
 
   submission_status:
     retrieval_text: >
       Справочник статусов отправки решения.
-      Нормализует состояния обработки отправок (pending, success, failed и т.д.).
 
     context_text: "submission_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE, description TEXT)"
 
     columns:
       status_id:
-        retrieval_text: уникальный идентификатор статуса отправки, первичный ключ
+        retrieval_text: идентификатор статуса отправки
       name:
-        retrieval_text: краткое имя статуса отправки
+        retrieval_text: код статуса отправки
       description:
         retrieval_text: описание статуса отправки
 
     examples:
-      - query: Статусы отправок
+      - query: Статусы сабмитов
         answer: >
-          SELECT ss.status_id, ss.name, ss.description
-          FROM submission_status ss
-          ORDER BY ss.status_id;
+          SELECT status_id, name
+          FROM submission_status
+          ORDER BY status_id;
+
+  submission:
+    retrieval_text: >
+      Отправки решений участников.
+      В актуальной DDL внутри submission хранятся и оценка (metric_value, is_valid, error_log),
+      и данные кода решения (source_code, language, solution_description).
+      Оценка и данные кода решения хранятся прямо в submission.
+
+    context_text: "submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, status_id BIGINT FK→submission_status, file_path TEXT, attempt_number SMALLINT, metric_value NUMERIC(12,6) NULL, is_valid BOOLEAN, error_log TEXT NULL, source_code TEXT NULL, language VARCHAR(30) NULL, solution_description TEXT NULL, submitted_at TIMESTAMP)"
+
+    columns:
+      submission_id:
+        retrieval_text: идентификатор отправки
+      participation_id:
+        retrieval_text: FK на participation
+      status_id:
+        retrieval_text: FK на submission_status
+      file_path:
+        retrieval_text: путь к отправленному файлу
+      attempt_number:
+        retrieval_text: номер попытки
+      metric_value:
+        retrieval_text: оценка метрики
+      is_valid:
+        retrieval_text: валиден ли сабмит
+      error_log:
+        retrieval_text: лог ошибок валидации/оценки
+      source_code:
+        retrieval_text: исходный код решения
+      language:
+        retrieval_text: язык программирования решения
+      solution_description:
+        retrieval_text: текстовое описание решения
+      submitted_at:
+        retrieval_text: дата и время отправки
+
+    examples:
+      - query: Количество валидных сабмитов по соревнованиям
+        answer: >
+          SELECT p.competition_id, COUNT(*) AS valid_submissions
+          FROM submission s
+          JOIN participation p ON p.participation_id = s.participation_id
+          WHERE s.is_valid = TRUE
+          GROUP BY p.competition_id
+          ORDER BY valid_submissions DESC;
+
+      - query: Участники превысившие дневной лимит отправок
+        answer: >
+          SELECT u.username, DATE(s.submitted_at) AS day, COUNT(s.submission_id) AS daily_count
+          FROM "user" u
+          JOIN participation p ON p.user_id = u.user_id
+          JOIN submission s ON s.participation_id = p.participation_id
+          JOIN configuration cfg ON cfg.competition_id = p.competition_id
+          GROUP BY u.username, DATE(s.submitted_at), cfg.daily_attempt_limit
+          HAVING COUNT(s.submission_id) > cfg.daily_attempt_limit;
+
+  team_member:
+    retrieval_text: >
+      Участники команд и их роли.
+
+    context_text: "team_member(member_id BIGINT PK, team_id BIGINT FK→team, user_id BIGINT FK→user, team_role_id BIGINT FK→team_role, joined_at TIMESTAMP)"
+
+    columns:
+      member_id:
+        retrieval_text: идентификатор записи участника команды
+      team_id:
+        retrieval_text: FK на team
+      user_id:
+        retrieval_text: FK на user
+      team_role_id:
+        retrieval_text: FK на team_role
+      joined_at:
+        retrieval_text: дата вступления в команду
+
+    examples:
+      - query: Участники команд с ролями
+        answer: >
+          SELECT tm.team_id, u.username, tr.name AS team_role
+          FROM team_member tm
+          JOIN "user" u ON u.user_id = tm.user_id
+          JOIN team_role tr ON tr.team_role_id = tm.team_role_id
+          ORDER BY tm.team_id;
+
+  competition_dataset:
+    retrieval_text: >
+      Связующая таблица соревнования и датасета (M:N).
+
+    context_text: "competition_dataset(competition_id BIGINT PK FK→competition, dataset_id BIGINT PK FK→dataset, added_at TIMESTAMP)"
+
+    columns:
+      competition_id:
+        retrieval_text: FK на competition
+      dataset_id:
+        retrieval_text: FK на dataset
+      added_at:
+        retrieval_text: дата привязки датасета к соревнованию
+
+    examples:
+      - query: Сколько датасетов у каждого соревнования
+        answer: >
+          SELECT competition_id, COUNT(*) AS datasets_count
+          FROM competition_dataset
+          GROUP BY competition_id
+          ORDER BY datasets_count DESC;
+
+  team_competition:
+    retrieval_text: >
+      Связующая таблица команда-датасет (M:N).
+
+    context_text: "team_competition(team_id BIGINT PK FK→team, dataset_id BIGINT PK FK→dataset, added_at TIMESTAMP)"
+
+    columns:
+      team_id:
+        retrieval_text: FK на team
+      dataset_id:
+        retrieval_text: FK на dataset
+      added_at:
+        retrieval_text: дата привязки датасета к команде
+
+    examples:
+      - query: Количество датасетов у каждой команды
+        answer: >
+          SELECT team_id, COUNT(*) AS datasets_count
+          FROM team_competition
+          GROUP BY team_id
+          ORDER BY datasets_count DESC;

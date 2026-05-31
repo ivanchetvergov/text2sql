@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cli.action_dispatcher import ACTION_SPECS
+from cli.constants import ACTION_SPECS
 from cli.services import run_seed_action
 from cli.ui.config import BINDINGS, MAX_PARAM_FIELDS, MENU
 from cli.ui.styles import APP_CSS
@@ -8,7 +8,7 @@ from cli.ui.widgets import OutputLog
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Input, Static
+from textual.widgets import Input, Static, TextArea
 
 
 class SeederCLIApp(App):
@@ -42,6 +42,7 @@ class SeederCLIApp(App):
                 for idx in range(1, MAX_PARAM_FIELDS + 1):
                     yield Static("", id=f"label_{idx}", classes="param_label")
                     yield Input(id=f"param_{idx}", classes="param_input", value="")
+                yield TextArea("", id="prompt_area", classes="prompt_area")
                 yield Static("", id="hint")
             with Vertical(id="right_pane"):
                 yield Static("Logs", id="logs_title")
@@ -155,8 +156,10 @@ class SeederCLIApp(App):
     def _set_params_visible(self, visible: bool) -> None:
         header = self.query_one("#params_header", Static)
         menu = self.query_one("#menu", Static)
+        prompt_area = self.query_one("#prompt_area", TextArea)
         header.display = visible
         menu.display = not visible
+        prompt_area.display = False
 
         for idx in range(1, MAX_PARAM_FIELDS + 1):
             label = self.query_one(f"#label_{idx}", Static)
@@ -175,6 +178,10 @@ class SeederCLIApp(App):
         self.param_keys = list(defaults.keys())
 
         self._set_params_visible(True)
+        prompt_area = self.query_one("#prompt_area", TextArea)
+        use_prompt_area = action == "llm_query"
+        prompt_area.display = use_prompt_area
+        prompt_area.text = ""
 
         for idx in range(1, MAX_PARAM_FIELDS + 1):
             label = self.query_one(f"#label_{idx}", Static)
@@ -184,8 +191,12 @@ class SeederCLIApp(App):
             if idx <= len(self.param_keys):
                 key = self.param_keys[idx - 1]
                 label.update(key)
-                field.value = str(defaults[key])
-                field.placeholder = str(defaults[key])
+                if use_prompt_area and key == "prompt":
+                    field.display = False
+                    prompt_area.text = str(defaults[key])
+                else:
+                    field.value = str(defaults[key])
+                    field.placeholder = str(defaults[key])
             else:
                 label.display = False
                 field.display = False
@@ -238,7 +249,10 @@ class SeederCLIApp(App):
         self._select_action(key)
         self._log(f"Selected: {key}")
         if self.param_keys:
-            self.action_focus_params()
+            if key == "llm_query":
+                self.set_focus(self.query_one("#prompt_area", TextArea))
+            else:
+                self.action_focus_params()
 
     def action_focus_menu(self) -> None:
         self.set_focus(None)
@@ -350,10 +364,14 @@ class SeederCLIApp(App):
     def _parse_params(self) -> dict:
         defaults = ACTION_SPECS.get(self.selected_action, {}).get("defaults", {})
         params: dict = {}
+        prompt_area = self.query_one("#prompt_area", TextArea)
 
         for idx, key in enumerate(self.param_keys, start=1):
-            field = self.query_one(f"#param_{idx}", Input)
-            raw = field.value.strip()
+            if self.selected_action == "llm_query" and key == "prompt" and prompt_area.display:
+                raw = prompt_area.text.strip()
+            else:
+                field = self.query_one(f"#param_{idx}", Input)
+                raw = field.value.strip()
             default = defaults[key]
             if raw == "":
                 params[key] = default
@@ -379,6 +397,8 @@ class SeederCLIApp(App):
         return params
 
     def _reset_param_fields(self) -> None:
+        prompt_area = self.query_one("#prompt_area", TextArea)
+        prompt_area.text = ""
         for idx in range(1, MAX_PARAM_FIELDS + 1):
             field = self.query_one(f"#param_{idx}", Input)
             if field.display:

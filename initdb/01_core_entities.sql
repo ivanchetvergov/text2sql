@@ -65,18 +65,18 @@ CREATE TABLE IF NOT EXISTS dataset_file (
 
 CREATE TABLE IF NOT EXISTS team (
     team_id SERIAL PRIMARY KEY,
-    competition_id INT NOT NULL REFERENCES competition(competition_id) ON DELETE CASCADE,
     status_id INT NOT NULL REFERENCES team_status(status_id),
-    name VARCHAR(30) NOT NULL,
+    name VARCHAR(30) NOT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS participation (
     participation_id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL REFERENCES "user"(user_id) ON DELETE CASCADE,
     competition_id INT NOT NULL REFERENCES competition(competition_id) ON DELETE CASCADE,
+    team_id INT NOT NULL REFERENCES team(team_id) ON DELETE CASCADE,
     status_id INT NOT NULL REFERENCES participation_status(status_id),
-    team_id INT REFERENCES team(team_id) ON DELETE SET NULL,
+    best_score NUMERIC(12,6),
+    rank SMALLINT,
     registered_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -86,34 +86,13 @@ CREATE TABLE IF NOT EXISTS submission (
     status_id INT NOT NULL REFERENCES submission_status(status_id),
     file_path TEXT NOT NULL,
     attempt_number SMALLINT NOT NULL,
-    submitted_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS evaluation (
-    evaluation_id SERIAL PRIMARY KEY,
-    submission_id INT NOT NULL UNIQUE REFERENCES submission(submission_id) ON DELETE CASCADE,
     metric_value NUMERIC(12,6),
     is_valid BOOLEAN NOT NULL DEFAULT FALSE,
     error_log TEXT,
-    evaluated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS leaderboard_entry (
-    entry_id SERIAL PRIMARY KEY,
-    participation_id INT NOT NULL REFERENCES participation(participation_id) ON DELETE CASCADE,
-    competition_id INT NOT NULL REFERENCES competition(competition_id) ON DELETE CASCADE,
-    best_score NUMERIC(12,6),
-    rank SMALLINT,
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS solution_code (
-    code_id SERIAL PRIMARY KEY,
-    submission_id INT NOT NULL UNIQUE REFERENCES submission(submission_id) ON DELETE CASCADE,
-    source_code TEXT NOT NULL,
-    language VARCHAR(30) NOT NULL,
-    description TEXT,
-    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+    source_code TEXT,
+    language VARCHAR(30),
+    solution_description TEXT,
+    submitted_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 COMMIT;

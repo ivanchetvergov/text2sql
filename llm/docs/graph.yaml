@@ -64,7 +64,7 @@ tables:
         cardinality: many_to_one
         join_preference: JOIN
 
-      - to: competition_config
+      - to: configuration
         from_col: metric_id
         to_col: metric_id
         cardinality: one_to_many
@@ -82,23 +82,11 @@ tables:
         cardinality: many_to_one
         join_preference: JOIN
 
-      - to: task_type
-        from_col: task_type_id
-        to_col: task_type_id
-        cardinality: many_to_one
-        join_preference: JOIN
-
-      - to: competition_config
+      - to: configuration
         from_col: competition_id
         to_col: competition_id
         cardinality: one_to_one
         join_preference: JOIN
-
-      - to: prize
-        from_col: competition_id
-        to_col: competition_id
-        cardinality: one_to_many
-        join_preference: LEFT JOIN
 
       - to: participation
         from_col: competition_id
@@ -106,16 +94,22 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-      - to: dataset
+      - to: team
+        from_col: competition_id
+        to_col: competition_id
+        cardinality: one_to_many
+        join_preference: JOIN
+
+      - to: competition_dataset
         from_col: competition_id
         to_col: competition_id
         cardinality: one_to_many
         join_preference: JOIN
 
 
-  competition_config:
+  configuration:
     hub_score: 3
-    pk: config_id
+    pk: configuration_id
 
     edges:
       - to: competition
@@ -127,18 +121,6 @@ tables:
       - to: metric
         from_col: metric_id
         to_col: metric_id
-        cardinality: many_to_one
-        join_preference: JOIN
-
-
-  prize:
-    hub_score: 5
-    pk: prize_id
-
-    edges:
-      - to: competition
-        from_col: competition_id
-        to_col: competition_id
         cardinality: many_to_one
         join_preference: JOIN
 
@@ -166,38 +148,32 @@ tables:
         cardinality: one_to_many
         join_preference: JOIN
 
-      - to: leaderboard_row
-        from_col: participation_id
-        to_col: participation_id
-        cardinality: one_to_one
-        join_preference: LEFT JOIN
-
-      - to: code_kernel
-        from_col: participation_id
-        to_col: participation_id
-        cardinality: one_to_many
-        join_preference: LEFT JOIN
-
 
   dataset:
     hub_score: 3
     pk: dataset_id
 
     edges:
-      - to: competition
-        from_col: competition_id
-        to_col: competition_id
-        cardinality: many_to_one
+      - to: dataset_file
+        from_col: dataset_id
+        to_col: dataset_id
+        cardinality: one_to_many
         join_preference: JOIN
 
-      - to: file_artifact
+      - to: competition_dataset
+        from_col: dataset_id
+        to_col: dataset_id
+        cardinality: one_to_many
+        join_preference: JOIN
+
+      - to: team_competition
         from_col: dataset_id
         to_col: dataset_id
         cardinality: one_to_many
         join_preference: JOIN
 
 
-  file_artifact:
+  dataset_file:
     hub_score: 5
     pk: file_id
 
@@ -220,57 +196,87 @@ tables:
         cardinality: many_to_one
         join_preference: JOIN
 
-      - to: evaluation
-        from_col: submission_id
-        to_col: submission_id
-        cardinality: one_to_one
-        join_preference: LEFT JOIN
 
-
-  evaluation:
+  team:
     hub_score: 3
-    pk: evaluation_id
+    pk: team_id
 
     edges:
-      - to: submission
-        from_col: submission_id
-        to_col: submission_id
+      - to: competition
+        from_col: competition_id
+        to_col: competition_id
         cardinality: many_to_one
         join_preference: JOIN
 
-      - to: leaderboard_row
-        from_col: evaluation_id
-        to_col: best_evaluation_id
-        cardinality: one_to_one
-        join_preference: LEFT JOIN
-
-
-  leaderboard_row:
-    hub_score: 3
-    pk: participation_id
-
-    edges:
-      - to: participation
-        from_col: participation_id
-        to_col: participation_id
-        cardinality: many_to_one
+      - to: team_member
+        from_col: team_id
+        to_col: team_id
+        cardinality: one_to_many
         join_preference: JOIN
 
-      - to: evaluation
-        from_col: best_evaluation_id
-        to_col: evaluation_id
-        cardinality: many_to_one
+      - to: team_competition
+        from_col: team_id
+        to_col: team_id
+        cardinality: one_to_many
         join_preference: JOIN
 
 
-  code_kernel:
+  team_member:
     hub_score: 5
-    pk: kernel_id
+    pk: member_id
 
     edges:
-      - to: participation
-        from_col: participation_id
-        to_col: participation_id
+      - to: team
+        from_col: team_id
+        to_col: team_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+      - to: user
+        from_col: user_id
+        to_col: user_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+      - to: team_role
+        from_col: team_role_id
+        to_col: team_role_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+
+  competition_dataset:
+    hub_score: 5
+    pk: competition_id
+
+    edges:
+      - to: competition
+        from_col: competition_id
+        to_col: competition_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+      - to: dataset
+        from_col: dataset_id
+        to_col: dataset_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+
+  team_competition:
+    hub_score: 5
+    pk: team_id
+
+    edges:
+      - to: team
+        from_col: team_id
+        to_col: team_id
+        cardinality: many_to_one
+        join_preference: JOIN
+
+      - to: dataset
+        from_col: dataset_id
+        to_col: dataset_id
         cardinality: many_to_one
         join_preference: JOIN
 

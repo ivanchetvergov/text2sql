@@ -19,7 +19,7 @@ class Inserter:
 
         for dep_name, dep_query in dependencies.items():
             rows = await self.conn.fetch(dep_query)
-            values = [row[0] for row in rows]
+            values = [row[0] if len(row) == 1 else tuple(row[i] for i in range(len(row))) for row in rows]
             if not values and strict_dependencies:
                 raise ValueError(f"Dependency {dep_name} is empty")
             resolved[dep_name] = values
@@ -39,6 +39,7 @@ class Inserter:
         max_per_dependency: int = 1,
         context_id_key: str = "current_id",
         strict_dependencies: bool = True,
+        batch_size: int = 2000,
     ) -> int:
         if count is None and per_dependency is None:
             raise ValueError("Specify either count or per_dependency")
@@ -46,6 +47,8 @@ class Inserter:
             raise ValueError("Use count or per_dependency, not both")
         if min_per_dependency > max_per_dependency:
             raise ValueError("min_per_dependency cannot be greater than max_per_dependency")
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0")
 
         deps = await self._resolve_dependencies(dependencies, strict_dependencies)
         items: list[tuple] = []
@@ -67,6 +70,8 @@ class Inserter:
             print(f"Skip {table}: no items to insert.")
             return 0
 
-        await self.conn.executemany(query, items)
+        for start in range(0, len(items), batch_size):
+            chunk = items[start:start + batch_size]
+            await self.conn.executemany(query, chunk)
         print(f"Insert {len(items)} items into {table}.")
         return len(items)

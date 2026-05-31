@@ -14,6 +14,36 @@ from .text_utils import copy_doc, count_kinds, doc_key
 from ..utils import Logger, YamlReader
 
 
+_TABLE_ALIASES = {
+    "competition_config": "configuration",
+    "file_artifact": "dataset_file",
+    "leaderboard_row": "participation",
+    "leaderboard_entry": "participation",
+    "evaluation": "submission",
+    "solution_code": "submission",
+}
+
+
+def _canonical_table(name: str) -> str:
+    return _TABLE_ALIASES.get(name, name)
+
+
+def _canonical_text(text: str) -> str:
+    if not text:
+        return text
+    fixed = text
+    fixed = fixed.replace("competition_config", "configuration")
+    fixed = fixed.replace("file_artifact", "dataset_file")
+    fixed = fixed.replace("leaderboard_row", "participation")
+    fixed = fixed.replace("leaderboard_entry", "participation")
+    fixed = fixed.replace("evaluation", "submission")
+    fixed = fixed.replace("solution_code", "submission")
+    fixed = fixed.replace("computed_at", "submitted_at")
+    fixed = fixed.replace("evaluated_at", "submitted_at")
+    fixed = fixed.replace("score", "best_score")
+    return fixed
+
+
 class RAG:
     def __init__(self, embed_model: EmbeddingModel) -> None:
         self._logger = Logger.get_logger("src.rag", filename="rag.log")
@@ -29,17 +59,18 @@ class RAG:
 
         example_id = 0
         for entry in entries:
-            table_name = entry["table"]
-            retrieval_text = entry.get("retrieval_text", "")
+            table_name = _canonical_table(entry["table"])
+            retrieval_text = _canonical_text(entry.get("retrieval_text", ""))
             if retrieval_text:
-                context = enrich_ddl(entry.get("context_text", ""), entry.get("columns", {}))
+                context = enrich_ddl(_canonical_text(entry.get("context_text", "")), entry.get("columns", {}))
+                context = _canonical_text(context)
                 self._add("tables", retrieval_text, {"table": table_name, "context_text": context})
 
             for ex in entry.get("examples", []):
                 if not isinstance(ex, dict):
                     continue
                 question = (ex.get("query") or "").strip()
-                answer = (ex.get("answer") or "").strip()
+                answer = _canonical_text((ex.get("answer") or "").strip())
                 if not question:
                     continue
                 text = f"{question}\nSQL: {answer}" if answer else question

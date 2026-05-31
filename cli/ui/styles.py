@@ -70,6 +70,21 @@ Screen {
     color: #ffffff;
 }
 
+.prompt_area {
+    display: none;
+    margin-top: 1;
+    width: 100%;
+    height: 8;
+    min-height: 6;
+    background: #000000;
+    color: #ffffff;
+    border: solid #2f2f2f;
+}
+
+.prompt_area:focus {
+    border: solid #ffffff;
+}
+
 #hint {
     margin-top: 1;
     color: #9a9a9a;

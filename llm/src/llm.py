@@ -9,6 +9,14 @@ from .promts import Prompts
 
 _MAX_EXAMPLES = 3
 
+
+def _trim_tables(tables: Dict[str, str], limit: int) -> Dict[str, str]:
+    if limit <= 0:
+        return {}
+    if len(tables) <= limit:
+        return tables
+    return dict(list(tables.items())[:limit])
+
 class LLM:
     def __init__(self,
                  url: str = "https://openrouter.ai/api/v1/chat/completions",
@@ -66,36 +74,53 @@ class LLM:
         temperature: float = 0.1,
         max_tokens: int = 600,
     ) -> str:
-        payload = {
-            "model": self.model_name,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        try:
-            resp = requests.post(
-                self.url,
-                headers=self._headers(),
-                json=payload,
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as exc:
-            body = ""
+        fallback_raw = os.getenv("OPENROUTER_FALLBACK_MODELS", "")
+        fallbacks = [m.strip() for m in fallback_raw.split(",") if m.strip()]
+        models = [self.model_name] + [m for m in fallbacks if m != self.model_name]
+
+        last_error: Optional[Exception] = None
+        for model in models:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
             try:
-                body = exc.response.text if exc.response is not None else ""
-            except Exception:
+                resp = requests.post(
+                    self.url,
+                    headers=self._headers(),
+                    json=payload,
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    return ""
+                message = choices[0].get("message", {})
+                return message.get("content", "") or ""
+            except requests.RequestException as exc:
+                last_error = exc
                 body = ""
-            raise RuntimeError(f"LLM API error: {body or str(exc)}") from exc
-        choices = data.get("choices", [])
-        if not choices:
-            return ""
-        message = choices[0].get("message", {})
-        return message.get("content", "") or ""
+                try:
+                    body = exc.response.text if exc.response is not None else ""
+                except Exception:
+                    body = ""
+                self._logger.warning("Model %s failed: %s", model, body or str(exc))
+
+        if last_error is None:
+            raise RuntimeError("LLM API error: no models configured")
+
+        body = ""
+        try:
+            body = last_error.response.text if getattr(last_error, "response", None) is not None else ""
+        except Exception:
+            body = ""
+        raise RuntimeError(f"LLM API error: {body or str(last_error)}") from last_error
 
     @staticmethod
     def _build_ctx(
@@ -147,9 +172,13 @@ class LLM:
     ) -> Tuple[Dict[str, str], str, List[str]]:
         """RAG retrieval + graph FK expansion. Returns (tables, fk_hint, examples)."""
         tables, examples = self.rag.context_for(question) if self.rag else ({}, [])
+        rag_table_limit = int(os.getenv("RAG_TABLE_LIMIT", "6"))
+        tables = _trim_tables(tables, rag_table_limit)
         if self.kg:
             ddl             = self.rag.ddl_lookup() if self.rag else {}
             tables, fk_hint = self.kg.enrich(tables, ddl_lookup=ddl)
+            final_table_limit = int(os.getenv("RAG_FINAL_TABLE_LIMIT", str(rag_table_limit)))
+            tables = _trim_tables(tables, final_table_limit)
         else:
             fk_hint = ""
         return tables, fk_hint, examples

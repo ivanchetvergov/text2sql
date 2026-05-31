@@ -6,7 +6,7 @@ include .env
 export
 endif
 
-.PHONY: up down logs ps rebuild reset purge psql clean-volume cli
+.PHONY: up down logs ps rebuild reset purge psql clean-volume cli clean-logs ckean-logs
 
 up:
 	$(COMPOSE) up -d --build
@@ -28,9 +28,9 @@ reset:
 	$(COMPOSE) up -d --build
 
 clean-volume:
-	docker volume rm competition-db_pg_data || true
+	$(COMPOSE) down -v --remove-orphans
 
-purge: clean-volume down
+purge: clean-volume
 	@echo "Database volume and container removed. Ready for clean rebuild."
 
 seed:
@@ -43,3 +43,8 @@ psql:
 
 cli:
 	python3 main.py
+
+clean-logs:
+	$(MAKE) -C llm clean-logs
+
+ckean-logs: clean-logs
