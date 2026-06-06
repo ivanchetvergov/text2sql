@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from .llm import LLM
 from .prompts import Prompts
-from .utils import Logger
+from ..utils import Logger
 
 _REQUIRED_FIELDS = ("valid", "score", "error")
 

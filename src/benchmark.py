@@ -17,11 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .graph import KnowledgeGraph
-from .judge import Judge
-from .llm import LLM
-from .pipeline import Pipeline
-from .rag import EmbeddingModel, RAG
+from .retrieval import EmbeddingModel, KnowledgeGraph, RAG
+from .generation import Judge, LLM, Pipeline
 from .utils import Logger
 
 _logger = Logger.get_logger("src.benchmark", filename="benchmark.log")

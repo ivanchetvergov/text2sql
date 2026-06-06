@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .llm import LLM
 from .prompts import Prompts
-from .utils import Logger
+from ..utils import Logger
 
 _MAX_EXAMPLES = 3
 

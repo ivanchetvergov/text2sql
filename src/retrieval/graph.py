@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import networkx as nx
 
-from .utils import GraphReader, Logger
+from ..utils import GraphReader, Logger
 
 _DEFAULT_CARDINALITY_COST = {
     "one_to_one":  0.0,

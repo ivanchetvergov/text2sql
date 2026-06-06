@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .bm25_retriever import BM25Retriever
+from .bm25 import BM25Retriever
 from .constants import CANDIDATES_PER_SLOT, KIND_PER_SLOT, MINIMUMS_PER_SLOT
-from .cross_encoder_scorer import MiniCrossEncoderScorer
-from .ddl_enricher import enrich_ddl
+from .cross_encoder import MiniCrossEncoderScorer
+from .ddl import enrich_ddl
 from .embeddings import EmbeddingModel
-from .faiss_retriever import FaissRetriever
-from .hybrid_retriever import HybridRetriever
+from .faiss import FaissRetriever
+from .hybrid import HybridRetriever
 from .text_utils import copy_doc, count_kinds, doc_key
 from ..utils import Logger, YamlReader
 

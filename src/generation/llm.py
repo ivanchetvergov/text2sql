@@ -6,7 +6,7 @@ from typing import Dict, Optional
 
 import requests
 
-from .utils import Logger
+from ..utils import Logger
 
 
 class LLM:

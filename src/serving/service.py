@@ -10,15 +10,13 @@ import uvicorn
 from fastapi import FastAPI, APIRouter
 from pydantic import BaseModel
 
-from .graph import KnowledgeGraph
-from .llm import LLM
-from .pipeline import Pipeline
-from .rag import EmbeddingModel, RAG
-from .utils import Logger
+from ..retrieval import EmbeddingModel, KnowledgeGraph, RAG
+from ..generation import LLM, Pipeline
+from ..utils import Logger
 
 
 def _load_env_file() -> None:
-    env_path = Path(__file__).resolve().parents[1] / ".env"
+    env_path = Path(__file__).resolve().parents[2] / ".env"
     if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():

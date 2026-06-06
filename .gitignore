@@ -22,6 +22,9 @@ results.json
 # Jupyter
 *.ipynb
 
+# Claude
+.claude/
+
 # Misc
 *.egg-info/
 dist/

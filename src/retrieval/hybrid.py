@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .bm25_retriever import BM25Retriever
+from .bm25 import BM25Retriever
 from .constants import CANDIDATES_PER_SLOT
-from .cross_encoder_scorer import MiniCrossEncoderScorer
-from .faiss_retriever import FaissRetriever
+from .cross_encoder import MiniCrossEncoderScorer
+from .faiss import FaissRetriever
 from .text_utils import doc_key
 
 
