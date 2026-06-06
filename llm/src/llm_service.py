@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 import json
 import os
@@ -105,8 +106,17 @@ class LLMService:
             kg=self.kg,
         )
 
+        self._pool: Optional[asyncpg.Pool] = None
+
+        @asynccontextmanager
+        async def lifespan(_app: FastAPI):
+            self._pool = await asyncpg.create_pool(**_pg_connect_kwargs())
+            yield
+            if self._pool:
+                await self._pool.close()
+
         self.router = APIRouter()
-        self.app = FastAPI()
+        self.app = FastAPI(lifespan=lifespan)
 
         self.router.post("/generate")(self._generate)
         self.router.get("/health")(self._health)
@@ -149,10 +159,9 @@ class LLMService:
             }
 
         limited_sql = _normalize_sql(_apply_limit(sql, row_limit))
-        conn = None
         try:
-            conn = await asyncpg.connect(**_pg_connect_kwargs())
-            rows = await conn.fetch(limited_sql)
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(limited_sql)
             data = [dict(r) for r in rows]
             rendered = json.dumps(data, ensure_ascii=False, indent=2, default=str)
             return {
@@ -169,9 +178,6 @@ class LLMService:
                     f"RESULT:\n\nExecution error: {exc}"
                 )
             }
-        finally:
-            if conn is not None:
-                await conn.close()
 
     def _health(self) -> dict[str, str]:
         ok = self.client.health()

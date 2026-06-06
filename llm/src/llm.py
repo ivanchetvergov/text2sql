@@ -5,7 +5,7 @@ import os
 import re
 import requests
 from .utils import Logger
-from .promts import Prompts
+from .prompts import Prompts
 
 _MAX_EXAMPLES = 3
 
@@ -139,7 +139,7 @@ class LLM:
 
     def _maybe_refine(self, sql: str, question: str, s2_ctx: str) -> str:
         """Stage 3: one judge pass — retry with error hint if SQL is rejected."""
-        from .judje import Judge
+        from .judge import Judge
         try:
             verdict = Judge(self).evaluate(question, sql)
         except Exception as exc:
@@ -210,7 +210,7 @@ class LLM:
         )
         self._logger.info("Generated SQL:\n%s", sql)
 
-        # sql = self._maybe_refine(sql, prompt, schema_ctx)
+        sql = self._maybe_refine(sql, prompt, schema_ctx)
 
         return sql
 

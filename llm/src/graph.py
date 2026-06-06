@@ -73,6 +73,34 @@ class KnowledgeGraph:
         self._algorithms: Dict[str, Any]           = {}
         self._logger = Logger.get_logger("src.graph", filename="graph.log")
 
+    def load_from_dict(self, data: Dict[str, Any]) -> "KnowledgeGraph":
+        self._algorithms = data.get("algorithms", {})
+        self._tables     = data.get("tables", {})
+
+        for tbl, cfg in self._tables.items():
+            self._g.add_node(tbl, hub_score=cfg.get("hub_score", 5), pk=cfg.get("pk"))
+
+        for tbl, cfg in self._tables.items():
+            for edge in (cfg.get("edges") or []):
+                to          = edge["to"]
+                cardinality = edge.get("cardinality", "")
+                if to not in self._g:
+                    self._g.add_node(to)
+                w = self._edge_weight(tbl, to, cardinality)
+                attrs = dict(from_col=edge["from_col"], to_col=edge["to_col"],
+                             cardinality=cardinality,
+                             join_preference=edge.get("join_preference", "JOIN"))
+                self._g.add_edge(tbl, to, **attrs, weight=w)
+                if not self._g.has_edge(to, tbl):
+                    self._g.add_edge(to, tbl, **{**attrs,
+                                                 "from_col": edge["to_col"],
+                                                 "to_col":   edge["from_col"]},
+                                     weight=w * self._reverse_edge_multiplier())
+
+        self._logger.info("Graph loaded: %d nodes, %d edges",
+                          self._g.number_of_nodes(), self._g.number_of_edges())
+        return self
+
     def load_from_yaml(self, path: str | Path | None = None) -> "KnowledgeGraph":
         data = GraphReader.load(path)
         self._algorithms = data["algorithms"]

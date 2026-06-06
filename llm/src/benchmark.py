@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from .embeddings import EmbeddingModel
 from .graph import KnowledgeGraph
-from .judje import Judge
+from .judge import Judge
 from .llm import LLM
 from .rag import RAG
 from .utils import Logger
@@ -52,6 +52,23 @@ def _build_pipeline(url: str, timeout: float) -> LLM:
         kg = KnowledgeGraph().load_from_yaml()
     except Exception as exc:
         _logger.warning("KnowledgeGraph unavailable, continuing without it: %s", exc)
+
+    return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
+
+
+def _build_spider_pipeline(url: str, timeout: float, spider_root: str, db_id: str) -> LLM:
+    from .spider import SpiderLoader
+    loader = SpiderLoader(spider_root)
+    rag_entries, graph_data = loader.schema_for(db_id)
+
+    rag = RAG(EmbeddingModel())
+    rag.build_from_entries(rag_entries)
+
+    kg: Optional[KnowledgeGraph] = None
+    try:
+        kg = KnowledgeGraph().load_from_dict(graph_data)
+    except Exception as exc:
+        _logger.warning("KnowledgeGraph build failed: %s", exc)
 
     return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
 
@@ -182,18 +199,70 @@ def run(
     return output
 
 
+def run_spider(
+    spider_root: str,
+    db_id: str,
+    output_path: str,
+    split: str = "dev",
+    url: str = "https://openrouter.ai/api/v1/chat/completions",
+    timeout: float = 180.0,
+) -> Dict[str, Any]:
+    from .spider import SpiderLoader
+    cases = SpiderLoader(spider_root).questions_for(db_id, split=split)
+    if not cases:
+        raise ValueError(f"No questions found for db_id='{db_id}' in split='{split}'")
+
+    print(f"Loaded {len(cases)} case(s) for {db_id} ({split})")
+    print("Building Spider pipeline…")
+    llm   = _build_spider_pipeline(url, timeout, spider_root, db_id)
+    judge = Judge(llm)
+    print("Pipeline ready.\n")
+
+    results: List[Dict[str, Any]] = []
+    for i, case in enumerate(cases, 1):
+        cid = case.get("id", f"#{i}")
+        print(f"[{i}/{len(cases)}] {cid}: {case['question'][:70]}", end="  ", flush=True)
+        result = _run_case(llm, judge, case)
+        icon = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
+        print(f"{icon}  score={result['judge']['score']:.2f}  {result['duration_s']}s")
+        results.append(result)
+
+    label = f"spider:{db_id}:{split}"
+    output = _build_output(results, llm.model_name, label)
+    Path(output_path).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    s = output["summary"]
+    print(
+        f"\nDone — {s['passed']}/{s['total']} passed"
+        f"  pass_rate={s['pass_rate']:.0%}"
+        f"  avg_score={s['avg_score']:.2f}"
+        f"  avg_time={s['avg_duration_s']}s"
+    )
+    print(f"Results saved → {output_path}")
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="text2sql benchmark runner")
-    parser.add_argument("--input",   required=True,  help="Path to JSON file with test cases")
     parser.add_argument("--output",  required=True,  help="Path to write JSON results")
-    parser.add_argument("--url",     default="https://openrouter.ai/api/v1/chat/completions",
-                        help="OpenRouter API URL (default: https://openrouter.ai/api/v1/chat/completions)")
-    parser.add_argument("--timeout", default=180.0, type=float,
-                        help="Request timeout in seconds (default: 180)")
+    parser.add_argument("--url",     default="https://openrouter.ai/api/v1/chat/completions")
+    parser.add_argument("--timeout", default=180.0, type=float)
+
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--input",  help="JSON file with test cases (own schema)")
+    mode.add_argument("--spider", metavar="SPIDER_ROOT", help="Path to Spider dataset root")
+
+    parser.add_argument("--db",    metavar="DB_ID",  help="Spider database id (required with --spider)")
+    parser.add_argument("--split", default="dev",    help="Spider split: train or dev (default: dev)")
     args = parser.parse_args()
 
     try:
-        run(args.input, args.output, args.url, args.timeout)
+        if args.spider:
+            if not args.db:
+                parser.error("--db is required when using --spider")
+            run_spider(args.spider, args.db, args.output, args.split, args.url, args.timeout)
+        else:
+            run(args.input, args.output, args.url, args.timeout)
     except Exception as exc:
         print(f"Fatal: {exc}", file=sys.stderr)
         return 1

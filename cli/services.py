@@ -26,19 +26,7 @@ def _run_llm_query(params: dict) -> ActionOutcome:
     started = datetime.now().isoformat(timespec="seconds")
     total_started = perf_counter()
     prompt = str(params.get("prompt", "")).strip()
-    url = str(
-        params.get(
-            "url",
-            DEFAULT_LLM_URL,
-        )
-    ).strip()
-    model = str(
-        params.get(
-            "model",
-            os.getenv("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL),
-        )
-    ).strip()
-    timeout = DEFAULT_LLM_TIMEOUT_SECONDS
+    url = str(params.get("url", DEFAULT_LLM_URL)).strip()
 
     if not prompt:
         return ActionOutcome(
@@ -46,77 +34,32 @@ def _run_llm_query(params: dict) -> ActionOutcome:
             started_at=started,
             finished_at=datetime.now().isoformat(timespec="seconds"),
         )
-    logs: list[str] = []
+
+    logs: list[str] = [f"Prompt: {prompt}"]
     error: str | None = None
-    logs.append(f"Prompt: {prompt}")
     try:
-        is_openrouter_direct = "openrouter.ai" in url
-        if is_openrouter_direct:
-            api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-            if not api_key:
-                return ActionOutcome(
-                    error="OPENROUTER_API_KEY is not set",
-                    started_at=started,
-                    finished_at=datetime.now().isoformat(timespec="seconds"),
-                )
-
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            site_url = os.getenv("OPENROUTER_SITE_URL", "").strip()
-            app_name = os.getenv("OPENROUTER_APP_NAME", "text2sql-db-cli").strip()
-            if site_url:
-                headers["HTTP-Referer"] = site_url
-            if app_name:
-                headers["X-Title"] = app_name
-
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-                "max_tokens": 600,
-            }
-            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-        else:
-            resp = requests.post(url, json={"prompt": prompt}, timeout=timeout)
-
+        resp = requests.post(url, json={"prompt": prompt}, timeout=DEFAULT_LLM_TIMEOUT_SECONDS)
         if resp.status_code != 200:
-            body_preview = ""
-            try:
-                body_preview = resp.text[:400]
-            except Exception:
-                body_preview = ""
-            logs.append(f"Response error body: {body_preview}")
-            error = f"server returned status {resp.status_code}: {body_preview}"
+            body = resp.text[:400]
+            logs.append(f"Response error body: {body}")
+            error = f"server returned status {resp.status_code}: {body}"
         else:
-            payload = resp.json()
-            text = None
-            if isinstance(payload, dict):
-                choices = payload.get("choices", [])
-                if choices and isinstance(choices[0], dict):
-                    msg = choices[0].get("message", {})
-                    if isinstance(msg, dict):
-                        text = msg.get("content")
-                if text is None:
-                    text = payload.get("text") or payload.get("response")
-            logs.append(f"Response: {str(text or '')}")
+            text = (resp.json() or {}).get("text", "")
+            logs.append(f"Response: {text}")
     except Exception as exc:
         error = f"request failed: {exc}"
 
     duration_ms = int((perf_counter() - total_started) * 1000)
     finished = datetime.now().isoformat(timespec="seconds")
+    clean_logs = [l for l in logs if l.strip()]
     return ActionOutcome(
-        inserted=None,
-        logs=[line for line in logs if line.strip()],
+        logs=clean_logs,
         error=error,
         started_at=started,
         finished_at=finished,
         duration_ms=duration_ms,
-        connect_ms=0,
         execute_ms=duration_ms,
-        log_lines=len([line for line in logs if line.strip()]),
-        throughput_rows_per_sec=None,
+        log_lines=len(clean_logs),
     )
 
 

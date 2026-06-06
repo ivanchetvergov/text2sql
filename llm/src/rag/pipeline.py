@@ -53,6 +53,26 @@ class RAG:
         self.retriever = HybridRetriever(dense=dense, bm25=bm25, scorer=scorer)
         self._docs: dict[str, list[dict[str, Any]]] = {slot: [] for slot in KIND_PER_SLOT}
 
+    def build_from_entries(self, entries: list[dict]) -> None:
+        self._logger.info("Building RAG from entries: %d tables", len(entries))
+        example_id = 0
+        for entry in entries:
+            table_name = entry["table"]
+            retrieval_text = entry.get("retrieval_text", "")
+            if retrieval_text:
+                context = enrich_ddl(entry.get("context_text", ""), entry.get("columns", {}))
+                self._add("tables", retrieval_text, {"table": table_name, "context_text": context})
+            for ex in entry.get("examples", []):
+                if not isinstance(ex, dict):
+                    continue
+                question = (ex.get("query") or "").strip()
+                answer = (ex.get("answer") or "").strip()
+                if not question:
+                    continue
+                text = f"{question}\nSQL: {answer}" if answer else question
+                self._add("examples", text, {"table": table_name, "example_id": example_id})
+                example_id += 1
+
     def build_from_yaml(self, path: str | Path | None = None) -> None:
         entries = YamlReader.load(path)
         self._logger.info("Building RAG from yaml: %d tables", len(entries))
