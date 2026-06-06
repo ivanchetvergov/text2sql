@@ -31,11 +31,11 @@ def _load_env_file() -> None:
 
 def _pg_connect_kwargs() -> dict[str, str | int]:
     return {
-        "user": os.getenv("POSTGRES_USER", "competition_user"),
-        "password": os.getenv("POSTGRES_PASSWORD", "competition_pass"),
-        "database": os.getenv("POSTGRES_DB", "competition_db"),
-        "host": os.getenv("DB_HOST", "127.0.0.1"),
-        "port": int(os.getenv("DB_PORT", "5436")),
+        "user":     os.getenv("POSTGRES_USER",     "postgres"),
+        "password": os.getenv("POSTGRES_PASSWORD", "postgres"),
+        "database": os.getenv("POSTGRES_DB",       "postgres"),
+        "host":     os.getenv("DB_HOST",            "127.0.0.1"),
+        "port":     int(os.getenv("DB_PORT",        "5432")),
     }
 
 
@@ -49,25 +49,6 @@ def _apply_limit(sql: str, row_limit: int) -> str:
     if re.search(r"\blimit\b", base, flags=re.IGNORECASE):
         return base
     return f"{base}\nLIMIT {row_limit}"
-
-
-def _normalize_sql(sql: str) -> str:
-    # Minimal fixes for common schema naming mismatches from generated SQL.
-    fixed = sql
-    fixed = re.sub(r"\bleaderboard_row\b", "participation", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bleaderboard_entry\b", "participation", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bevaluation\b", "submission", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bsolution_code\b", "submission", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bcompetition_config\b", "configuration", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bfile_artifact\b", "dataset_file", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bcomputed_at\b", "submitted_at", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bevaluated_at\b", "submitted_at", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bbest_evaluation_id\b", "submission_id", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bdescription\b", "solution_description", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\blr\.score\b", "lr.best_score", fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bFROM\s+user\b", 'FROM "user"', fixed, flags=re.IGNORECASE)
-    fixed = re.sub(r"\bJOIN\s+user\b", 'JOIN "user"', fixed, flags=re.IGNORECASE)
-    return fixed
 
 
 class Prompt(BaseModel):
@@ -123,7 +104,6 @@ class LLMService:
 
         self.app.include_router(self.router)
 
-
     async def _generate(self, body: Prompt) -> dict[str, str]:
         try:
             sql = self.client.generate(body.prompt)
@@ -137,14 +117,9 @@ class LLMService:
             else:
                 self._logger.exception("LLM generation failed: %s", exc)
                 user_msg = f"LLM error: {msg}"
-            return {
-                "text": (
-                    "SQL:\n\n<not generated>\n\n"
-                    f"RESULT:\n\n{user_msg}"
-                )
-            }
-        row_limit = int(os.getenv("LLM_RESULT_LIMIT", "20"))
+            return {"text": f"SQL:\n\n<not generated>\n\nRESULT:\n\n{user_msg}"}
 
+        row_limit = int(os.getenv("LLM_RESULT_LIMIT", "20"))
         self._logger.info("Generated SQL:\n%s", sql)
 
         if not sql.strip():
@@ -158,37 +133,24 @@ class LLMService:
                 )
             }
 
-        limited_sql = _normalize_sql(_apply_limit(sql, row_limit))
+        limited_sql = _apply_limit(sql, row_limit)
         try:
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch(limited_sql)
             data = [dict(r) for r in rows]
             rendered = json.dumps(data, ensure_ascii=False, indent=2, default=str)
-            return {
-                "text": (
-                    f"SQL:\n\n{limited_sql}\n\n"
-                    f"RESULT (up to {row_limit} rows):\n\n{rendered}"
-                )
-            }
+            return {"text": f"SQL:\n\n{limited_sql}\n\nRESULT (up to {row_limit} rows):\n\n{rendered}"}
         except Exception as exc:
             self._logger.exception("SQL execution failed: %s", exc)
-            return {
-                "text": (
-                    f"SQL:\n\n{limited_sql}\n\n"
-                    f"RESULT:\n\nExecution error: {exc}"
-                )
-            }
+            return {"text": f"SQL:\n\n{limited_sql}\n\nRESULT:\n\nExecution error: {exc}"}
 
     def _health(self) -> dict[str, str]:
         ok = self.client.health()
         return {"status": "ok" if ok else "error"}
 
-    def run(self,
-            host: str = "0.0.0.0",
-            port: int = 8000,
-            **uvicorn_kwargs: Any) -> None:
-
+    def run(self, host: str = "0.0.0.0", port: int = 8000, **uvicorn_kwargs: Any) -> None:
         uvicorn.run(self.app, host=host, port=port, **uvicorn_kwargs)
+
 
 def make_app():
     svc = LLMService()

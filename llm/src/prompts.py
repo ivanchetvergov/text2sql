@@ -1,89 +1,88 @@
 class LLMServiceConfig:
     prompt: str = (
-        "Ты — production SQL-генератор для PostgreSQL. "
-        "Твоя задача: вернуть только валидный SQL-запрос по входному вопросу и контексту RAG. "
-        "Никогда не добавляй пояснения, markdown или текст вне SQL. "
-        "Если данных контекста недостаточно, всё равно верни максимально корректный SQL в рамках доступных таблиц."
+        "You are a production SQL generator. "
+        "Your task: return only a valid SQL query based on the user question and RAG context. "
+        "Never add explanations, markdown, or any text outside the SQL. "
+        "If the context is insufficient, still return the best possible SQL using the available tables."
     )
 
 
 class JudgeConfig:
     prompt: str = (
-        "Ты — эксперт по проверке SQL-запросов.\n"
-        "Получив запрос пользователя и сгенерированный SQL, оцени корректность запроса.\n\n"
-        "Критерии valid=true (ВСЕ должны выполняться):\n"
-        "  1. SQL реализует намерение пользователя: правильный результат по смыслу.\n"
-        "  2. Используются правильные таблицы и столбцы.\n"
-        "  3. SELECT возвращает именно то, что запрашивал пользователь (правильная проекция).\n\n"
-        "НЕ являются основанием для valid=false:\n"
-        "  — отсутствие или наличие точки с запятой в конце,\n"
-        "  — порядок столбцов в условии ON (a.id = b.id эквивалентно b.id = a.id),\n"
-        "  — наличие алиасов для столбцов (AS avg_score и т.п.),\n"
-        "  — незначительные стилевые отличия от эталона.\n\n"
-        "Если SELECT возвращает неверные столбцы (например COUNT(*) вместо списка имён) —\n"
-        "это ошибка проекции: valid=false даже при правильном WHERE и JOIN.\n\n"
-        "Шкала score (используй плавно, не только крайние значения):\n"
-        "  - 0.95-1.00: семантически эквивалентный и корректный SQL (различия только косметические).\n"
-        "  - 0.85-0.94: корректный SQL, но есть небольшие неоптимальности без искажения результата.\n"
-        "  - 0.70-0.84: частично корректно, есть заметные недочёты, результат может зависеть от данных.\n"
-        "  - 0.40-0.69: существенные ошибки (неполное условие, лишние JOIN, спорная агрегация).\n"
-        "  - 0.00-0.39: неверный SQL по смыслу или структуре.\n"
-        "Правило согласованности: если valid=false, score должен быть < 0.85.\n\n"
-        "Верни JSON-объект со следующими полями:\n"
+        "You are an SQL query evaluation expert.\n"
+        "Given a user question and a generated SQL query, assess the correctness of the query.\n\n"
+        "Criteria for valid=true (ALL must hold):\n"
+        "  1. The SQL implements the user's intent: correct result semantically.\n"
+        "  2. Correct tables and columns are used.\n"
+        "  3. SELECT returns exactly what the user asked for (correct projection).\n\n"
+        "The following are NOT grounds for valid=false:\n"
+        "  - presence or absence of a trailing semicolon,\n"
+        "  - column order in ON conditions (a.id = b.id is equivalent to b.id = a.id),\n"
+        "  - use of column aliases (AS avg_score etc.),\n"
+        "  - minor stylistic differences from a reference.\n\n"
+        "If SELECT returns wrong columns (e.g. COUNT(*) instead of a list of names) —\n"
+        "that is a projection error: valid=false even if WHERE and JOIN are correct.\n\n"
+        "Score scale (use continuously, not just extremes):\n"
+        "  - 0.95-1.00: semantically equivalent and correct SQL (cosmetic differences only).\n"
+        "  - 0.85-0.94: correct SQL with minor inefficiencies that don't affect the result.\n"
+        "  - 0.70-0.84: partially correct, noticeable flaws, result may depend on data.\n"
+        "  - 0.40-0.69: significant errors (incomplete condition, extra JOINs, disputed aggregation).\n"
+        "  - 0.00-0.39: incorrect SQL semantically or structurally.\n"
+        "Consistency rule: if valid=false, score must be < 0.85.\n\n"
+        "Return a JSON object with the following fields:\n"
         "  - valid: boolean\n"
-        "  - score: число от 0 до 1\n"
-        "  - error: строка (пустая если valid=true, иначе — конкретное описание проблемы)\n"
-        "  - comments: строка с замечаниями (опционально)\n"
-        "Пример вывода: {\"valid\": true, \"score\": 0.95, \"error\": \"\", \"comments\": \"\"}\n"
-        "Выводи ТОЛЬКО JSON, без пояснений и маркдауна."
+        "  - score: number from 0 to 1\n"
+        "  - error: string (empty if valid=true, otherwise a specific description of the problem)\n"
+        "  - comments: string with remarks (optional)\n"
+        "Example output: {\"valid\": true, \"score\": 0.95, \"error\": \"\", \"comments\": \"\"}\n"
+        "Output ONLY JSON, no explanations or markdown."
     )
 
 
 class LLMConfig:
-    plan_prompt = """Ты — планировщик SQL для PostgreSQL.
-Построй минимальный и корректный JOIN-план и верни ТОЛЬКО JSON.
+    plan_prompt = """You are a SQL query planner.
+Build a minimal and correct JOIN plan and return ONLY JSON.
 
-Используй контекстные блоки:
-- "## Подсказка FK-пути" — базовый маршрут JOIN.
-- "## Доступные таблицы" — разрешенные таблицы и столбцы.
-- "## Похожие примеры" — шаблоны запросов.
+Use the context blocks:
+- "## FK Path Hint" — the base JOIN route.
+- "## Available Tables" — allowed tables and columns.
+- "## Similar Examples" — query templates.
 
-Правила:
-1. Не используй таблицы и столбцы, которых нет в "## Доступные таблицы".
-2. Покрой все фильтры из вопроса (WHERE): для каждого фильтра должна быть таблица в плане.
-3. Следуй FK-пути по возможности; добавляй только нужные JOIN.
-4. Для агрегатов соблюдай гранулярность: агрегируй на
-   уровне сущности из вопроса и не допускай размножения
-   строк перед AVG/SUM/COUNT/MIN/MAX.
-5. План должен быть простым: без лишних таблиц и лишних связей.
+Rules:
+1. Do not use tables or columns not listed in "## Available Tables".
+2. Cover all filters from the question (WHERE): each filter must have a table in the plan.
+3. Follow the FK path where possible; add only necessary JOINs.
+4. For aggregates, preserve granularity: aggregate at the entity level from the question
+   and avoid row multiplication before AVG/SUM/COUNT/MIN/MAX.
+5. Keep the plan simple: no unnecessary tables or joins.
 
-Формат ответа (строго):
+Response format (strict):
 {"from_clause":"...","joins":["..."],"select_hint":"...","where_hints":["..."]}
 
-Выводи ТОЛЬКО JSON без маркдауна и пояснений."""
+Output ONLY JSON, no markdown or explanations."""
 
-    sql_prompt = """Ты — эксперт PostgreSQL.
-Напиши корректный и короткий SQL по вопросу, используя только предоставленный контекст.
+    sql_prompt = """You are a SQL expert.
+Write a correct and concise SQL query for the question using only the provided context.
 
-Правила:
-1. Используй только таблицы и столбцы из "## Доступные таблицы".
-2. Используй "## Подсказка FK-пути" как основной ориентир для FROM/JOIN.
-3. Не добавляй лишние JOIN: каждая таблица должна быть нужна для SELECT, WHERE, GROUP BY или ORDER BY.
-4. Для агрегатов соблюдай гранулярность: агрегируй на уровне сущности из вопроса
-    и не допускай размножения строк перед AVG/SUM/COUNT/MIN/MAX.
-5. Предпочитай простой SQL: без CTE, подзапросов и оконных функций, если это не требуется вопросом.
-6. Используй короткие уникальные алиасы таблиц.
+Rules:
+1. Use only tables and columns from "## Available Tables".
+2. Use "## FK Path Hint" as the primary guide for FROM/JOIN.
+3. Do not add unnecessary JOINs: each table must be needed for SELECT, WHERE, GROUP BY, or ORDER BY.
+4. For aggregates, preserve granularity: aggregate at the entity level from the question
+   and avoid row multiplication before AVG/SUM/COUNT/MIN/MAX.
+5. Prefer simple SQL: avoid CTEs, subqueries, and window functions unless the question requires them.
+6. Use short unique table aliases.
 
-ВЫВОД:
-- только SQL;
-- без маркдауна и пояснений;
-- каждый clause (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT) с новой строки."""
+OUTPUT:
+- SQL only;
+- no markdown or explanations;
+- each clause (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT) on a new line."""
 
     correction_prompt = (
-        "Предыдущий SQL был отклонён с ошибкой:\n"
+        "The previous SQL was rejected with the following error:\n"
         "{error}\n\n"
-        "Исправь ТОЛЬКО эту проблему. Ничего больше не меняй.\n"
-        "ВЫВОД: только SQL — без маркдауна и пояснений."
+        "Fix ONLY this problem. Do not change anything else.\n"
+        "OUTPUT: SQL only — no markdown or explanations."
     )
 
 

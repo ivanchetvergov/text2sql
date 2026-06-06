@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import sqlite3
+
 from .embeddings import EmbeddingModel
 from .graph import KnowledgeGraph
 from .judge import Judge
@@ -56,9 +58,7 @@ def _build_pipeline(url: str, timeout: float) -> LLM:
     return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
 
 
-def _build_spider_pipeline(url: str, timeout: float, spider_root: str, db_id: str) -> LLM:
-    from .spider import SpiderLoader
-    loader = SpiderLoader(spider_root)
+def _build_spider_pipeline(url: str, timeout: float, loader: Any, db_id: str) -> LLM:
     rag_entries, graph_data = loader.schema_for(db_id)
 
     rag = RAG(EmbeddingModel())
@@ -73,9 +73,27 @@ def _build_spider_pipeline(url: str, timeout: float, spider_root: str, db_id: st
     return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
 
 
+# ─── SQLite execution accuracy ────────────────────────────────────────────────
+
+def _exec_sqlite(sql: str, db_path: str) -> Optional[List[tuple]]:
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = None
+            cur = conn.execute(sql)
+            return cur.fetchall()
+    except Exception:
+        return None
+
+
+def _results_match(a: Optional[List[tuple]], b: Optional[List[tuple]]) -> bool:
+    if a is None or b is None:
+        return False
+    return set(map(tuple, a)) == set(map(tuple, b))
+
+
 # ─── single case runner ───────────────────────────────────────────────────────
 
-def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any]) -> Dict[str, Any]:
+def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any], db_path: Optional[str] = None) -> Dict[str, Any]:
     question     = case["question"]
     expected_sql = case.get("expected_sql", "")
 
@@ -99,6 +117,13 @@ def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any]) -> Dict[str, Any]:
             _logger.warning("judge.evaluate() failed for %s: %s", case.get("id"), exc)
             verdict = {"valid": False, "score": 0.0, "error": str(exc), "comments": ""}
 
+    ex: Optional[bool] = None
+    if db_path and generated_sql and expected_sql and not generate_error:
+        ex = _results_match(
+            _exec_sqlite(generated_sql, db_path),
+            _exec_sqlite(expected_sql,  db_path),
+        )
+
     passed = bool(verdict.get("valid")) and not generate_error
     status = "pass" if passed else ("error" if generate_error else "fail")
 
@@ -107,6 +132,7 @@ def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any]) -> Dict[str, Any]:
         "question":      question,
         "expected_sql":  expected_sql,
         "generated_sql": generated_sql,
+        "ex":            ex,
         "judge": {
             "valid":    verdict.get("valid",    False),
             "score":    verdict.get("score",    0.0),
@@ -132,6 +158,8 @@ def _build_output(
     errors   = sum(1 for r in results if r["status"] == "error")
     scores   = [r["judge"]["score"] for r in results if r["judge"]["score"] > 0]
     durs     = [r["duration_s"] for r in results]
+    ex_results = [r["ex"] for r in results if r.get("ex") is not None]
+    ex_accuracy = round(sum(ex_results) / len(ex_results), 4) if ex_results else None
 
     return {
         "meta": {
@@ -147,10 +175,47 @@ def _build_output(
             "errors":       errors,
             "pass_rate":    round(passed / total, 4) if total else 0.0,
             "avg_score":    round(sum(scores) / len(scores), 4) if scores else 0.0,
+            "ex_accuracy":  ex_accuracy,
             "avg_duration_s": round(sum(durs) / len(durs), 2) if durs else 0.0,
         },
         "results": results,
     }
+
+
+# ─── shared runner ────────────────────────────────────────────────────────────
+
+def _run_benchmark(
+    cases: List[Dict[str, Any]],
+    llm: LLM,
+    judge: Judge,
+    output_path: str,
+    label: str,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    results: List[Dict[str, Any]] = []
+    for i, case in enumerate(cases, 1):
+        cid = case.get("id", f"#{i}")
+        print(f"[{i}/{len(cases)}] {cid}: {case['question'][:70]}", end="  ", flush=True)
+        result = _run_case(llm, judge, case, db_path=db_path)
+        icon = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
+        ex_tag = f"  ex={'✓' if result['ex'] else '✗'}" if result.get("ex") is not None else ""
+        print(f"{icon}  score={result['judge']['score']:.2f}{ex_tag}  {result['duration_s']}s")
+        results.append(result)
+
+    output = _build_output(results, llm.model_name, label)
+    Path(output_path).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    s = output["summary"]
+    ex_line = f"  ex_acc={s['ex_accuracy']:.0%}" if s.get("ex_accuracy") is not None else ""
+    print(
+        f"\nDone — {s['passed']}/{s['total']} passed"
+        f"  pass_rate={s['pass_rate']:.0%}"
+        f"  avg_score={s['avg_score']:.2f}"
+        f"{ex_line}"
+        f"  avg_time={s['avg_duration_s']}s"
+    )
+    print(f"Results saved → {output_path}")
+    return output
 
 
 # ─── main ─────────────────────────────────────────────────────────────────────
@@ -170,33 +235,7 @@ def run(
     llm   = _build_pipeline(url, timeout)
     judge = Judge(llm)
     print("Pipeline ready.\n")
-
-    results: List[Dict[str, Any]] = []
-    for i, case in enumerate(cases, 1):
-        cid = case.get("id", f"#{i}")
-        print(f"[{i}/{len(cases)}] {cid}: {case['question'][:70]}", end="  ", flush=True)
-        result = _run_case(llm, judge, case)
-        icon = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
-        score = result["judge"]["score"]
-        print(f"{icon}  score={score:.2f}  {result['duration_s']}s")
-        results.append(result)
-
-    output = _build_output(results, llm.model_name, input_path)
-
-    Path(output_path).write_text(
-        json.dumps(output, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    s = output["summary"]
-    print(
-        f"\nDone — {s['passed']}/{s['total']} passed"
-        f"  pass_rate={s['pass_rate']:.0%}"
-        f"  avg_score={s['avg_score']:.2f}"
-        f"  avg_time={s['avg_duration_s']}s"
-    )
-    print(f"Results saved → {output_path}")
-    return output
+    return _run_benchmark(cases, llm, judge, output_path, input_path)
 
 
 def run_spider(
@@ -208,38 +247,22 @@ def run_spider(
     timeout: float = 180.0,
 ) -> Dict[str, Any]:
     from .spider import SpiderLoader
-    cases = SpiderLoader(spider_root).questions_for(db_id, split=split)
+    loader = SpiderLoader(spider_root)
+    cases = loader.questions_for(db_id, split=split)
     if not cases:
         raise ValueError(f"No questions found for db_id='{db_id}' in split='{split}'")
 
+    db_path = str(Path(spider_root) / "database" / db_id / f"{db_id}.db")
+    db_path = db_path if Path(db_path).exists() else None
+
     print(f"Loaded {len(cases)} case(s) for {db_id} ({split})")
+    if db_path:
+        print(f"SQLite EX evaluation enabled: {db_path}")
     print("Building Spider pipeline…")
-    llm   = _build_spider_pipeline(url, timeout, spider_root, db_id)
+    llm   = _build_spider_pipeline(url, timeout, loader, db_id)
     judge = Judge(llm)
     print("Pipeline ready.\n")
-
-    results: List[Dict[str, Any]] = []
-    for i, case in enumerate(cases, 1):
-        cid = case.get("id", f"#{i}")
-        print(f"[{i}/{len(cases)}] {cid}: {case['question'][:70]}", end="  ", flush=True)
-        result = _run_case(llm, judge, case)
-        icon = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
-        print(f"{icon}  score={result['judge']['score']:.2f}  {result['duration_s']}s")
-        results.append(result)
-
-    label = f"spider:{db_id}:{split}"
-    output = _build_output(results, llm.model_name, label)
-    Path(output_path).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    s = output["summary"]
-    print(
-        f"\nDone — {s['passed']}/{s['total']} passed"
-        f"  pass_rate={s['pass_rate']:.0%}"
-        f"  avg_score={s['avg_score']:.2f}"
-        f"  avg_time={s['avg_duration_s']}s"
-    )
-    print(f"Results saved → {output_path}")
-    return output
+    return _run_benchmark(cases, llm, judge, output_path, f"spider:{db_id}:{split}", db_path=db_path)
 
 
 def main() -> int:

@@ -130,11 +130,11 @@ class LLM:
     ) -> str:
         parts: List[str] = []
         if fk_hint:
-            parts.append("## Подсказка FK-пути\n" + fk_hint)
+            parts.append("## FK Path Hint\n" + fk_hint)
         if tables:
-            parts.append("## Доступные таблицы\n" + "\n".join(f"- {v}" for v in tables.values() if v))
+            parts.append("## Available Tables\n" + "\n".join(f"- {v}" for v in tables.values() if v))
         if examples:
-            parts.append("## Похожие примеры\n" + "\n\n".join(examples[:_MAX_EXAMPLES]))
+            parts.append("## Similar Examples\n" + "\n\n".join(examples[:_MAX_EXAMPLES]))
         return "\n\n".join(parts)
 
     def _maybe_refine(self, sql: str, question: str, s2_ctx: str) -> str:
@@ -151,10 +151,10 @@ class LLM:
         self._logger.info("Judge rejected SQL (%s) — retrying", error)
         correction_ctx = (
             s2_ctx
-            + f"\n\n## Исправление\n{Prompts.llm.correction_prompt.format(error=error)}"
+            + f"\n\n## Correction\n{Prompts.llm.correction_prompt.format(error=error)}"
         )
         full = (Prompts.llm.sql_prompt + "\n\n" + correction_ctx
-                + "\n\n## Вопрос\n" + question)
+                + "\n\n## Question\n" + question)
         refined = self._strip_fences(
             self._call(
                 system_prompt=Prompts.llm_service.prompt,
@@ -199,7 +199,7 @@ class LLM:
         schema_ctx = self._build_ctx(fk_hint, tables, examples)
         self._logger.info("Schema context:\n%s\n%s\n%s", "=" * 60, schema_ctx, "=" * 60)
 
-        full_prompt = Prompts.llm.sql_prompt + "\n\n" + schema_ctx + "\n\n## Вопрос\n" + prompt
+        full_prompt = Prompts.llm.sql_prompt + "\n\n" + schema_ctx + "\n\n## Question\n" + prompt
         sql = self._strip_fences(
             self._call(
                 system_prompt=Prompts.llm_service.prompt,

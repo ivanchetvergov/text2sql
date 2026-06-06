@@ -74,28 +74,23 @@ class RAG:
                 example_id += 1
 
     def build_from_yaml(self, path: str | Path | None = None) -> None:
-        entries = YamlReader.load(path)
-        self._logger.info("Building RAG from yaml: %d tables", len(entries))
-
-        example_id = 0
-        for entry in entries:
-            table_name = _canonical_table(entry["table"])
-            retrieval_text = _canonical_text(entry.get("retrieval_text", ""))
-            if retrieval_text:
-                context = enrich_ddl(_canonical_text(entry.get("context_text", "")), entry.get("columns", {}))
-                context = _canonical_text(context)
-                self._add("tables", retrieval_text, {"table": table_name, "context_text": context})
-
-            for ex in entry.get("examples", []):
-                if not isinstance(ex, dict):
-                    continue
-                question = (ex.get("query") or "").strip()
-                answer = _canonical_text((ex.get("answer") or "").strip())
-                if not question:
-                    continue
-                text = f"{question}\nSQL: {answer}" if answer else question
-                self._add("examples", text, {"table": table_name, "example_id": example_id})
-                example_id += 1
+        raw = YamlReader.load(path)
+        self._logger.info("Building RAG from yaml: %d tables", len(raw))
+        canonical = []
+        for e in raw:
+            examples = [
+                {**ex, "answer": _canonical_text((ex.get("answer") or "").strip())}
+                for ex in (e.get("examples") or [])
+                if isinstance(ex, dict)
+            ]
+            canonical.append({
+                "table":          _canonical_table(e["table"]),
+                "retrieval_text": _canonical_text(e.get("retrieval_text", "")),
+                "context_text":   _canonical_text(e.get("context_text", "")),
+                "columns":        e.get("columns") or {},
+                "examples":       examples,
+            })
+        self.build_from_entries(canonical)
 
     def _add(self, slot: str, text: str, meta: dict[str, Any]) -> None:
         doc = {"text": text, "kind": KIND_PER_SLOT[slot], **meta}

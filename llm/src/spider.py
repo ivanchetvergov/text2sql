@@ -14,6 +14,7 @@ Usage example:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,19 +23,23 @@ class SpiderLoader:
     def __init__(self, spider_root: str | Path) -> None:
         self._root = Path(spider_root)
         self._tables: list[dict] | None = None
+        self._splits: dict[str, list[dict]] = {}
 
     # ── public API ────────────────────────────────────────────────────────────
 
-    def schema_for(self, db_id: str) -> tuple[list[dict], dict]:
+    def schema_for(self, db_id: str, train_split: str = "train") -> tuple[list[dict], dict]:
         """Return (rag_entries, graph_data) for a Spider database."""
         db = self._find_db(db_id)
-        return self._rag_entries(db), self._graph_data(db)
+        rag_entries = self._rag_entries(db)
+        self._attach_examples(rag_entries, db_id, train_split)
+        return rag_entries, self._graph_data(db)
 
     def questions_for(self, db_id: str, split: str = "dev") -> list[dict]:
         """Return benchmark cases for a specific database and split."""
-        path = self._root / f"{split}.json"
-        with path.open(encoding="utf-8") as f:
-            all_qs: list[dict] = json.load(f)
+        if split not in self._splits:
+            with (self._root / f"{split}.json").open(encoding="utf-8") as f:
+                self._splits[split] = json.load(f)
+        all_qs = self._splits[split]
         return [
             {
                 "id": f"spider_{i:04d}",
@@ -52,29 +57,35 @@ class SpiderLoader:
     # ── schema conversion ─────────────────────────────────────────────────────
 
     def _rag_entries(self, db: dict) -> list[dict]:
-        table_names = db["table_names_original"]
-        col_names   = db["column_names_original"]   # [[tbl_idx, col_name], ...]
-        col_types   = db["column_types"]
-        primary_keys = set(db["primary_keys"])
+        table_names_orig = db["table_names_original"]
+        table_names_nl   = db["table_names"]
+        col_names_orig   = db["column_names_original"]   # [[tbl_idx, col_name], ...]
+        col_names_nl     = db["column_names"]             # [[tbl_idx, nl_name], ...]
+        col_types        = db["column_types"]
+        primary_keys     = set(db["primary_keys"])
 
-        table_cols: dict[int, list[tuple[int, str, str]]] = {
-            i: [] for i in range(len(table_names))
+        table_cols: dict[int, list[tuple[int, str, str, str]]] = {
+            i: [] for i in range(len(table_names_orig))
         }
-        for col_idx, (tbl_idx, col_name) in enumerate(col_names):
+        for col_idx, (tbl_idx, col_orig) in enumerate(col_names_orig):
             if tbl_idx == -1:
                 continue
-            table_cols[tbl_idx].append((col_idx, col_name, col_types[col_idx]))
+            col_nl = col_names_nl[col_idx][1]
+            table_cols[tbl_idx].append((col_idx, col_orig, col_names_nl[col_idx][1], col_types[col_idx]))
 
         entries = []
-        for tbl_idx, tbl_name in enumerate(table_names):
+        for tbl_idx, tbl_name in enumerate(table_names_orig):
+            tbl_nl = table_names_nl[tbl_idx]
             cols = table_cols[tbl_idx]
             col_parts = []
-            for col_idx, col_name, col_type in cols:
+            retrieval_parts = []
+            for col_idx, col_orig, col_nl, col_type in cols:
                 suffix = " PK" if col_idx in primary_keys else ""
-                col_parts.append(f"{col_name} {col_type.upper()}{suffix}")
+                col_parts.append(f"{col_orig} {col_type.upper()}{suffix}")
+                retrieval_parts.append(col_nl if col_nl != col_orig else col_orig)
 
             context_text   = f"{tbl_name}({', '.join(col_parts)})"
-            retrieval_text = f"{tbl_name}: {', '.join(c[1] for c in cols)}"
+            retrieval_text = f"{tbl_nl} ({tbl_name}): {', '.join(retrieval_parts)}"
 
             entries.append({
                 "table":          tbl_name,
@@ -130,6 +141,31 @@ class SpiderLoader:
             },
             "tables": tables,
         }
+
+    def _attach_examples(self, entries: list[dict], db_id: str, split: str) -> None:
+        """Load training Q&A pairs and attach them to the most relevant table entry."""
+        try:
+            train_cases = self.questions_for(db_id, split=split)
+        except FileNotFoundError:
+            return
+        if not train_cases:
+            return
+
+        by_table: dict[str, list[dict]] = {e["table"]: [] for e in entries}
+        _from_re = re.compile(r'\bFROM\s+(\w+)', re.IGNORECASE)
+
+        for case in train_cases:
+            sql = case.get("expected_sql", "")
+            m = _from_re.search(sql)
+            tbl = m.group(1).lower() if m else None
+            target = next((e["table"] for e in entries if e["table"].lower() == tbl), None)
+            if target is None and entries:
+                target = entries[0]["table"]
+            if target:
+                by_table[target].append({"query": case["question"], "answer": sql})
+
+        for entry in entries:
+            entry["examples"] = by_table.get(entry["table"], [])
 
     # ── internals ─────────────────────────────────────────────────────────────
 

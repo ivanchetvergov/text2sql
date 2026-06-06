@@ -103,46 +103,15 @@ class KnowledgeGraph:
 
     def load_from_yaml(self, path: str | Path | None = None) -> "KnowledgeGraph":
         data = GraphReader.load(path)
-        self._algorithms = data["algorithms"]
         raw_tables = data["tables"]
-        self._tables = {}
-
+        canonical_tables: Dict[str, Any] = {}
         for tbl, cfg in raw_tables.items():
             ct = _canonical_table(tbl)
-            if ct not in self._tables:
-                self._tables[ct] = {**cfg, "edges": []}
+            if ct not in canonical_tables:
+                canonical_tables[ct] = {**cfg, "edges": []}
             for edge in (cfg.get("edges") or []):
-                normalized_edge = {
-                    **edge,
-                    "to": _canonical_table(edge["to"]),
-                }
-                self._tables[ct]["edges"].append(normalized_edge)
-
-        for tbl, cfg in self._tables.items():
-            self._g.add_node(tbl,
-                             hub_score=cfg.get("hub_score", 5),
-                             pk=cfg.get("pk"))
-
-        for tbl, cfg in self._tables.items():
-            for edge in (cfg.get("edges") or []):
-                to          = edge["to"]
-                cardinality = edge.get("cardinality", "")
-                if to not in self._g:
-                    self._g.add_node(to)
-                w = self._edge_weight(tbl, to, cardinality)
-                attrs = dict(from_col=edge["from_col"], to_col=edge["to_col"],
-                             cardinality=cardinality,
-                             join_preference=edge.get("join_preference", "JOIN"))
-                self._g.add_edge(tbl, to, **attrs, weight=w)
-                if not self._g.has_edge(to, tbl):
-                    self._g.add_edge(to, tbl, **{**attrs,
-                                                 "from_col": edge["to_col"],
-                                                 "to_col":   edge["from_col"]},
-                                     weight=w * self._reverse_edge_multiplier())
-
-        self._logger.info("Graph loaded: %d nodes, %d edges",
-                          self._g.number_of_nodes(), self._g.number_of_edges())
-        return self
+                canonical_tables[ct]["edges"].append({**edge, "to": _canonical_table(edge["to"])})
+        return self.load_from_dict({"algorithms": data["algorithms"], "tables": canonical_tables})
 
     def _hub_score(self, table: str) -> float:
         return float(self._tables.get(table, {}).get("hub_score", 5))

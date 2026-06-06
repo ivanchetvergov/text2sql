@@ -13,7 +13,6 @@ def tokenize(text: str) -> list[str]:
     return [token.lower() for token in _TOKEN_RE.findall(text or "")]
 
 
-
 def doc_key(item: dict[str, Any]) -> str:
     return f"{item.get('kind')}:{item.get('table')}:{item.get('example_id')}:{hash(item.get('text', ''))}"
 
