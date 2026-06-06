@@ -1,4 +1,4 @@
 from .embeddings import EmbeddingModel
-from .pipeline import RAG
+from .index import RAG
 
 __all__ = ["EmbeddingModel", "RAG"]

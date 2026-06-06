@@ -1,0 +1,49 @@
+2026-04-18 12:36:00,620 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-18 12:36:19,343 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-18 12:37:34,818 INFO src.graph: FK expansion added: ['task_type', 'competition_config', 'dataset', 'leaderboard_row', 'evaluation']
+2026-04-18 12:37:34,818 INFO src.graph: expand: no path found for anchors=['competition', 'user', 'participation', 'participation_status', 'role', 'submission']
+2026-04-18 14:31:12,234 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-18 14:35:36,612 INFO src.graph: FK expansion added: ['participation', 'metric', 'evaluation']
+2026-04-18 14:35:36,613 INFO src.graph: expand: BFS path=['competition', 'competition_config', 'user', 'dataset', 'task_type', 'participation', 'submission']
+2026-04-18 14:35:36,613 INFO src.graph: Graph hint (BFS):
+------------------------------------------------------------
+Tables: competition → competition_config → user → dataset → task_type → participation → submission
+Joins:
+  JOIN competition_config ON competition_config.competition_id = competition.competition_id
+  JOIN submission ON submission.participation_id = participation.participation_id
+------------------------------------------------------------
+2026-04-22 12:41:25,880 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-22 12:42:21,550 INFO src.graph: FK expansion added: ['submission', 'leaderboard_row', 'participation', 'metric', 'task_type', 'dataset']
+2026-04-22 12:42:21,550 INFO src.graph: expand: no path found for anchors=['evaluation', 'user', 'competition_config', 'prize', 'competition', 'participation_status']
+2026-04-24 22:06:09,525 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-24 22:07:29,532 INFO src.graph: FK expansion added: ['task_type', 'dataset', 'metric', 'submission', 'leaderboard_row']
+2026-04-24 22:07:29,533 INFO src.graph: expand: no path found for anchors=['competition', 'user', 'competition_config', 'evaluation', 'participation', 'role']
+2026-04-25 13:29:22,030 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-25 13:30:01,569 INFO src.graph: FK expansion added: ['leaderboard_row', 'metric', 'competition']
+2026-04-25 13:30:01,570 INFO src.graph: expand: BFS path=['evaluation', 'submission', 'participation', 'competition', 'competition_config', 'user', 'code_kernel']
+2026-04-25 13:30:01,570 INFO src.graph: Graph hint (BFS):
+------------------------------------------------------------
+Tables: evaluation → submission → participation → competition → competition_config → user → code_kernel
+Joins:
+  JOIN submission ON submission.submission_id = evaluation.submission_id
+  JOIN participation ON participation.participation_id = submission.participation_id
+  JOIN competition ON competition.competition_id = participation.competition_id
+  JOIN competition_config ON competition_config.competition_id = competition.competition_id
+------------------------------------------------------------
+2026-04-25 15:04:10,318 INFO src.graph: Graph loaded: 20 nodes, 30 edges
+2026-04-25 15:04:22,724 INFO src.graph: Graph loaded: 18 nodes, 26 edges
+2026-04-25 15:04:34,818 INFO src.graph: Graph loaded: 18 nodes, 26 edges
+2026-04-25 15:05:34,872 INFO src.graph: Graph loaded: 18 nodes, 26 edges
+2026-04-25 15:26:12,290 INFO src.graph: Graph loaded: 20 nodes, 34 edges
+2026-04-25 15:36:49,614 INFO src.graph: FK expansion added: ['participation', 'dataset', 'task_type', 'team']
+2026-04-25 15:36:49,615 INFO src.graph: expand: no path found for anchors=['configuration', 'role', 'user', 'dataset_file', 'metric', 'competition']
+2026-04-25 15:54:05,391 INFO src.graph: FK expansion added: ['metric', 'task_type', 'team', 'submission']
+2026-04-25 15:54:05,391 INFO src.graph: expand: no path found for anchors=['configuration', 'competition', 'participation', 'user', 'participation_status', 'dataset']
+2026-04-25 15:56:38,132 INFO src.graph: FK expansion added: ['metric', 'task_type', 'team', 'submission']
+2026-04-25 15:56:38,133 INFO src.graph: expand: no path found for anchors=['configuration', 'user', 'dataset', 'competition', 'participation_status', 'participation']
+2026-04-25 15:59:38,040 INFO src.graph: FK expansion added: ['dataset', 'metric', 'competition']
+2026-04-25 15:59:38,040 INFO src.graph: expand: no path found for anchors=['role', 'dataset_file', 'configuration', 'user', 'participation', 'submission']
+2026-04-25 16:01:49,895 INFO src.graph: FK expansion added: ['task_type', 'configuration', 'team', 'submission']
+2026-04-25 16:01:49,895 INFO src.graph: expand: no path found for anchors=['user', 'role', 'competition', 'participation', 'dataset', 'metric']
+2026-04-25 16:03:04,303 INFO src.graph: FK expansion added: ['metric', 'task_type', 'team', 'submission']
+2026-04-25 16:03:04,304 INFO src.graph: expand: no path found for anchors=['user', 'role', 'configuration', 'dataset', 'competition', 'participation']

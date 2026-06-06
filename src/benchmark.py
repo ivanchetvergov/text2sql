@@ -3,45 +3,33 @@ Benchmark runner for text2sql.
 
 Usage:
     python -m src.benchmark --input cases.json --output results.json
-
-Input file format (JSON array):
-    [
-      {
-        "id": "q01",
-        "question": "Сколько пользователей зарегистрировано?",
-        "expected_sql": "SELECT COUNT(*) FROM \"user\" u"
-      },
-      ...
-    ]
-
-Output file: see _build_output() for the full schema.
+    python -m src.benchmark --spider /path/to/spider --db concert_singer --output results.json
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import sqlite3
-
-from .embeddings import EmbeddingModel
 from .graph import KnowledgeGraph
 from .judge import Judge
 from .llm import LLM
-from .rag import RAG
+from .pipeline import Pipeline
+from .rag import EmbeddingModel, RAG
 from .utils import Logger
 
 _logger = Logger.get_logger("src.benchmark", filename="benchmark.log")
 
 
-# ─── pipeline bootstrap ───────────────────────────────────────────────────────
+# ─── pipeline builders ────────────────────────────────────────────────────────
 
-def _build_pipeline(url: str, timeout: float) -> LLM:
+def _build_pipeline(url: str, timeout: float) -> Pipeline:
     rag = RAG(EmbeddingModel())
     try:
         rag.build_from_yaml()
@@ -53,12 +41,12 @@ def _build_pipeline(url: str, timeout: float) -> LLM:
     try:
         kg = KnowledgeGraph().load_from_yaml()
     except Exception as exc:
-        _logger.warning("KnowledgeGraph unavailable, continuing without it: %s", exc)
+        _logger.warning("KnowledgeGraph unavailable: %s", exc)
 
-    return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
+    return Pipeline(llm=LLM(url=url, timeout=timeout), rag=rag, kg=kg)
 
 
-def _build_spider_pipeline(url: str, timeout: float, loader: Any, db_id: str) -> LLM:
+def _build_spider_pipeline(url: str, timeout: float, loader: Any, db_id: str) -> Pipeline:
     rag_entries, graph_data = loader.schema_for(db_id)
 
     rag = RAG(EmbeddingModel())
@@ -70,7 +58,7 @@ def _build_spider_pipeline(url: str, timeout: float, loader: Any, db_id: str) ->
     except Exception as exc:
         _logger.warning("KnowledgeGraph build failed: %s", exc)
 
-    return LLM(url=url, timeout=timeout, rag=rag, kg=kg)
+    return Pipeline(llm=LLM(url=url, timeout=timeout), rag=rag, kg=kg)
 
 
 # ─── SQLite execution accuracy ────────────────────────────────────────────────
@@ -78,32 +66,33 @@ def _build_spider_pipeline(url: str, timeout: float, loader: Any, db_id: str) ->
 def _exec_sqlite(sql: str, db_path: str) -> Optional[List[tuple]]:
     try:
         with sqlite3.connect(db_path) as conn:
-            conn.row_factory = None
-            cur = conn.execute(sql)
-            return cur.fetchall()
+            return conn.execute(sql).fetchall()
     except Exception:
         return None
 
 
 def _results_match(a: Optional[List[tuple]], b: Optional[List[tuple]]) -> bool:
-    if a is None or b is None:
-        return False
-    return set(map(tuple, a)) == set(map(tuple, b))
+    return a is not None and b is not None and set(map(tuple, a)) == set(map(tuple, b))
 
 
 # ─── single case runner ───────────────────────────────────────────────────────
 
-def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any], db_path: Optional[str] = None) -> Dict[str, Any]:
+def _run_case(
+    pipeline: Pipeline,
+    judge: Judge,
+    case: Dict[str, Any],
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
     question     = case["question"]
     expected_sql = case.get("expected_sql", "")
 
     t0 = time.perf_counter()
-    generate_error: Optional[str] = None
     generated_sql  = ""
+    generate_error: Optional[str] = None
     verdict: Dict[str, Any] = {}
 
     try:
-        generated_sql = llm.generate(question)
+        generated_sql = pipeline.generate(question)
     except Exception as exc:
         generate_error = str(exc)
         _logger.error("generate() failed for %s: %s", case.get("id"), exc)
@@ -124,8 +113,7 @@ def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any], db_path: Optional[st
             _exec_sqlite(expected_sql,  db_path),
         )
 
-    passed = bool(verdict.get("valid")) and not generate_error
-    status = "pass" if passed else ("error" if generate_error else "fail")
+    status = "pass" if (verdict.get("valid") and not generate_error) else ("error" if generate_error else "fail")
 
     return {
         "id":            case.get("id", ""),
@@ -145,38 +133,33 @@ def _run_case(llm: LLM, judge: Judge, case: Dict[str, Any], db_path: Optional[st
     }
 
 
-# ─── aggregate output builder ─────────────────────────────────────────────────
+# ─── aggregate output ─────────────────────────────────────────────────────────
 
-def _build_output(
-    results: List[Dict[str, Any]],
-    model_name: str,
-    input_file: str,
-) -> Dict[str, Any]:
-    total    = len(results)
-    passed   = sum(1 for r in results if r["status"] == "pass")
-    failed   = sum(1 for r in results if r["status"] == "fail")
-    errors   = sum(1 for r in results if r["status"] == "error")
-    scores   = [r["judge"]["score"] for r in results if r["judge"]["score"] > 0]
-    durs     = [r["duration_s"] for r in results]
-    ex_results = [r["ex"] for r in results if r.get("ex") is not None]
-    ex_accuracy = round(sum(ex_results) / len(ex_results), 4) if ex_results else None
+def _build_output(results: List[Dict[str, Any]], model_name: str, label: str) -> Dict[str, Any]:
+    total   = len(results)
+    passed  = sum(1 for r in results if r["status"] == "pass")
+    failed  = sum(1 for r in results if r["status"] == "fail")
+    errors  = sum(1 for r in results if r["status"] == "error")
+    scores  = [r["judge"]["score"] for r in results if r["judge"]["score"] > 0]
+    durs    = [r["duration_s"] for r in results]
+    ex_vals = [r["ex"] for r in results if r.get("ex") is not None]
 
     return {
         "meta": {
-            "run_at":       datetime.now(timezone.utc).isoformat(),
-            "model":        model_name,
-            "input_file":   input_file,
-            "total_cases":  total,
+            "run_at":      datetime.now(timezone.utc).isoformat(),
+            "model":       model_name,
+            "input_file":  label,
+            "total_cases": total,
         },
         "summary": {
             "total":        total,
             "passed":       passed,
             "failed":       failed,
             "errors":       errors,
-            "pass_rate":    round(passed / total, 4) if total else 0.0,
-            "avg_score":    round(sum(scores) / len(scores), 4) if scores else 0.0,
-            "ex_accuracy":  ex_accuracy,
-            "avg_duration_s": round(sum(durs) / len(durs), 2) if durs else 0.0,
+            "pass_rate":    round(passed / total, 4)           if total      else 0.0,
+            "avg_score":    round(sum(scores) / len(scores), 4) if scores    else 0.0,
+            "ex_accuracy":  round(sum(ex_vals) / len(ex_vals), 4) if ex_vals else None,
+            "avg_duration_s": round(sum(durs) / len(durs), 2)  if durs      else 0.0,
         },
         "results": results,
     }
@@ -186,7 +169,7 @@ def _build_output(
 
 def _run_benchmark(
     cases: List[Dict[str, Any]],
-    llm: LLM,
+    pipeline: Pipeline,
     judge: Judge,
     output_path: str,
     label: str,
@@ -196,13 +179,13 @@ def _run_benchmark(
     for i, case in enumerate(cases, 1):
         cid = case.get("id", f"#{i}")
         print(f"[{i}/{len(cases)}] {cid}: {case['question'][:70]}", end="  ", flush=True)
-        result = _run_case(llm, judge, case, db_path=db_path)
-        icon = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
+        result = _run_case(pipeline, judge, case, db_path=db_path)
+        icon   = "✓" if result["status"] == "pass" else ("!" if result["status"] == "error" else "✗")
         ex_tag = f"  ex={'✓' if result['ex'] else '✗'}" if result.get("ex") is not None else ""
         print(f"{icon}  score={result['judge']['score']:.2f}{ex_tag}  {result['duration_s']}s")
         results.append(result)
 
-    output = _build_output(results, llm.model_name, label)
+    output = _build_output(results, pipeline.llm.model_name, label)
     Path(output_path).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
 
     s = output["summary"]
@@ -211,14 +194,13 @@ def _run_benchmark(
         f"\nDone — {s['passed']}/{s['total']} passed"
         f"  pass_rate={s['pass_rate']:.0%}"
         f"  avg_score={s['avg_score']:.2f}"
-        f"{ex_line}"
-        f"  avg_time={s['avg_duration_s']}s"
+        f"{ex_line}  avg_time={s['avg_duration_s']}s"
     )
     print(f"Results saved → {output_path}")
     return output
 
 
-# ─── main ─────────────────────────────────────────────────────────────────────
+# ─── entry points ─────────────────────────────────────────────────────────────
 
 def run(
     input_path: str,
@@ -230,12 +212,12 @@ def run(
     if not isinstance(cases, list) or not cases:
         raise ValueError("Input file must be a non-empty JSON array")
 
-    print(f"Loaded {len(cases)} test case(s) from {input_path}")
+    print(f"Loaded {len(cases)} case(s) from {input_path}")
     print("Building pipeline…")
-    llm   = _build_pipeline(url, timeout)
-    judge = Judge(llm)
+    pipeline = _build_pipeline(url, timeout)
+    judge    = Judge(pipeline.llm)
     print("Pipeline ready.\n")
-    return _run_benchmark(cases, llm, judge, output_path, input_path)
+    return _run_benchmark(cases, pipeline, judge, output_path, input_path)
 
 
 def run_spider(
@@ -248,7 +230,7 @@ def run_spider(
 ) -> Dict[str, Any]:
     from .spider import SpiderLoader
     loader = SpiderLoader(spider_root)
-    cases = loader.questions_for(db_id, split=split)
+    cases  = loader.questions_for(db_id, split=split)
     if not cases:
         raise ValueError(f"No questions found for db_id='{db_id}' in split='{split}'")
 
@@ -257,32 +239,32 @@ def run_spider(
 
     print(f"Loaded {len(cases)} case(s) for {db_id} ({split})")
     if db_path:
-        print(f"SQLite EX evaluation enabled: {db_path}")
-    print("Building Spider pipeline…")
-    llm   = _build_spider_pipeline(url, timeout, loader, db_id)
-    judge = Judge(llm)
+        print(f"SQLite EX enabled: {db_path}")
+    print("Building pipeline…")
+    pipeline = _build_spider_pipeline(url, timeout, loader, db_id)
+    judge    = Judge(pipeline.llm)
     print("Pipeline ready.\n")
-    return _run_benchmark(cases, llm, judge, output_path, f"spider:{db_id}:{split}", db_path=db_path)
+    return _run_benchmark(cases, pipeline, judge, output_path, f"spider:{db_id}:{split}", db_path=db_path)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="text2sql benchmark runner")
-    parser.add_argument("--output",  required=True,  help="Path to write JSON results")
+    parser.add_argument("--output",  required=True)
     parser.add_argument("--url",     default="https://openrouter.ai/api/v1/chat/completions")
     parser.add_argument("--timeout", default=180.0, type=float)
 
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--input",  help="JSON file with test cases (own schema)")
-    mode.add_argument("--spider", metavar="SPIDER_ROOT", help="Path to Spider dataset root")
+    mode.add_argument("--input",  help="JSON file with test cases")
+    mode.add_argument("--spider", metavar="SPIDER_ROOT")
 
-    parser.add_argument("--db",    metavar="DB_ID",  help="Spider database id (required with --spider)")
-    parser.add_argument("--split", default="dev",    help="Spider split: train or dev (default: dev)")
+    parser.add_argument("--db",    metavar="DB_ID")
+    parser.add_argument("--split", default="dev")
     args = parser.parse_args()
 
     try:
         if args.spider:
             if not args.db:
-                parser.error("--db is required when using --spider")
+                parser.error("--db is required with --spider")
             run_spider(args.spider, args.db, args.output, args.split, args.url, args.timeout)
         else:
             run(args.input, args.output, args.url, args.timeout)

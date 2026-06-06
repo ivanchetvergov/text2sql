@@ -10,7 +10,10 @@ env/
 .env
 
 # Logs
-llm/logs/*.log
+logs/*.log
+
+# Benchmark outputs
+results.json
 
 # OS
 .DS_Store

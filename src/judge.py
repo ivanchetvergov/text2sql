@@ -16,8 +16,8 @@ class Judge:
         self._logger = Logger.get_logger("src.judge", filename="judge.log")
 
     def evaluate(self, user_request: str, sql: str) -> Dict[str, Any]:
-        raw = self.llm._strip_fences(
-            self.llm._call(
+        raw = LLM.strip_fences(
+            self.llm.call(
                 system_prompt=Prompts.judge.prompt,
                 user_prompt=f"User request: {user_request}\nGenerated SQL: {sql}\n",
                 max_tokens=200,

@@ -1,0 +1,311 @@
+2026-04-18 12:37:33,760 INFO src.llm: User prompt: посчитай число попыток (submissions) в системе, чья метрика "MSE" меньше 10 на датасете "Credit Churn" и чья попытка была отправлена между 3 и 5 часами дня
+2026-04-18 12:37:34,818 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic' -- название соревнования конкурса турнира, start_at TIMESTAMPTZ -- дата и время начала соревнования, end_at TIMESTAMPTZ -- дата и время окончания соревнования, status VARCHAR {active,finished,draft} -- статус соревнования active (активное) fi)
+- user(user_id BIGINT PK, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, created_at TIMESTAMPTZ -- дата и время регистрации пользователя на, bio TEXT nullable -- биография пользователя)
+- participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, registered_at TIMESTAMPTZ -- дата и время регистрации участника в сор, status VARCHAR {active,withdrawn} -- статус участия active (активный) disqual)
+- participation_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE -- краткое имя статуса участия, description TEXT -- описание статуса участия)
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли (например admin, description TEXT -- текстовое описание назначения роли)
+- submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, submitted_at TIMESTAMPTZ -- дата и время отправки решения сабмита, status VARCHAR {success,failed,pending} -- статус отправки success (успешно принято)
+
+## Похожие примеры
+Пользователи зарегистрированные в 2023 году отсортированные по количеству отправок
+SQL: SELECT u.user_id, u.username, COUNT(s.submission_id) AS submissions_count FROM user u JOIN participation p ON u.user_id = p.user_id JOIN submission s ON p.participation_id = s.participation_id WHERE u.created_at BETWEEN '2023-01-01' AND '2023-12-31' GROUP BY u.user_id, u.username ORDER BY submissions_count DESC;
+
+Участники превысившие дневной лимит отправок
+SQL: SELECT u.username, DATE(s.submitted_at) AS day, COUNT(s.submission_id) AS daily_count FROM user u JOIN participation p ON u.user_id = p.user_id JOIN submission s ON p.participation_id = s.participation_id JOIN competition_config cc ON p.competition_id = cc.competition_id GROUP BY u.username, DATE(s.submitted_at), cc.max_daily_submissions HAVING COUNT(s.submission_id) > cc.max_daily_submissions;
+
+Соревнования с наименьшим лимитом отправок в день
+SQL: SELECT c.title, cc.max_daily_submissions FROM competition_config cc JOIN competition c ON cc.competition_id = c.competition_id ORDER BY cc.max_daily_submissions ASC LIMIT 10;
+============================================================
+2026-04-18 12:37:46,063 INFO src.llm: Generated SQL:
+SELECT COUNT(s.submission_id) AS attempts_count
+FROM submission s
+JOIN participation p ON s.participation_id = p.participation_id
+WHERE EXTRACT(HOUR FROM s.submitted_at) BETWEEN 3 AND 5;
+2026-04-18 14:35:35,636 INFO src.llm: User prompt: Сколько было попыток (submissions), где метрика "MSE" меньше 10 на соревновании "Credit fraud"
+2026-04-18 14:35:36,613 INFO src.llm: Schema context:
+============================================================
+## Подсказка FK-пути
+Tables: competition → competition_config → user → dataset → task_type → participation → submission
+Joins:
+  JOIN competition_config ON competition_config.competition_id = competition.competition_id
+  JOIN submission ON submission.participation_id = participation.participation_id
+
+## Доступные таблицы
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic' -- название соревнования конкурса турнира, start_at TIMESTAMPTZ -- дата и время начала соревнования, end_at TIMESTAMPTZ -- дата и время окончания соревнования, status VARCHAR {active,finished,draft} -- статус соревнования active (активное) fi)
+- competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best,mean,last} -- правило агрегации результатов best (лучш, max_daily_submissions INT -- максимальное количество отправок в день )
+- user(user_id BIGINT PK, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, created_at TIMESTAMPTZ -- дата и время регистрации пользователя на, bio TEXT nullable -- биография пользователя)
+- dataset(dataset_id BIGINT PK, competition_id BIGINT FK→competition, usage_type VARCHAR {train,test,validation} -- тип использования датасета train (обучен, is_hidden BOOLEAN -- скрытый ли датасет от участников, created_at TIMESTAMPTZ -- дата создания датасета добавления данных)
+- task_type(task_type_id BIGINT PK, code VARCHAR {classification,regression,ranking,detection,nlp,clustering} -- код типа задачи например classification , description TEXT -- описание типа задачи машинного обучения, valid_response_format TEXT -- допустимый формат ответа для данного тип)
+- submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, submitted_at TIMESTAMPTZ -- дата и время отправки решения сабмита, status VARCHAR {success,failed,pending} -- статус отправки success (успешно принято)
+
+## Похожие примеры
+Участники соревнований с метрикой logloss и более 10 успешных отправок
+SQL: SELECT DISTINCT u.username FROM user u JOIN participation p ON u.user_id = p.user_id JOIN competition c ON p.competition_id = c.competition_id JOIN competition_config cc ON c.competition_id = cc.competition_id JOIN metric m ON cc.metric_id = m.metric_id JOIN submission s ON p.participation_id = s.participation_id WHERE m.name ILIKE '%logloss%' AND s.status = 'success' GROUP BY u.username HAVING COUNT(s.submission_id) > 10;
+
+Соревнования с наименьшим лимитом отправок в день
+SQL: SELECT c.title, cc.max_daily_submissions FROM competition_config cc JOIN competition c ON cc.competition_id = c.competition_id ORDER BY cc.max_daily_submissions ASC LIMIT 10;
+============================================================
+2026-04-18 14:35:37,292 WARNING src.llm: Model openai/gpt-oss-120b:free failed: {"error":{"message":"Provider returned error","code":503,"metadata":{"raw":"no healthy upstream","provider_name":"OpenInference","is_byok":false}},"user_id":"user_3BTut7riBa39bq8ZylemKG6tvl9"}
+2026-04-18 14:35:37,599 WARNING src.llm: Model google/gemma-4-31b-it:free failed: {"error":{"message":"Provider returned error","code":429,"metadata":{"raw":"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations","provider_name":"Google AI Studio","is_byok":false}},"user_id":"user_3BTut7riBa39bq8ZylemKG6tvl9"}
+2026-04-18 14:35:38,112 WARNING src.llm: Model minimax/minimax-m2.5:free failed: {"error":{"message":"Provider returned error","code":503,"metadata":{"raw":"no healthy upstream","provider_name":"OpenInference","is_byok":false}},"user_id":"user_3BTut7riBa39bq8ZylemKG6tvl9"}
+2026-04-18 14:35:53,843 INFO src.llm: Generated SQL:
+
+2026-04-22 12:42:20,848 INFO src.llm: User prompt: Посчитай число попыток (submissions), с метрикой в соревновании, где метрика "MSE"
+2026-04-22 12:42:21,550 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- evaluation(evaluation_id BIGINT PK, submission_id BIGINT FK→submission, metric_value FLOAT -- числовое значение метрики результат оцен, computed_at TIMESTAMPTZ -- дата и время когда была вычислена оценка)
+- user(user_id BIGINT PK, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, created_at TIMESTAMPTZ -- дата и время регистрации пользователя на, bio TEXT nullable -- биография пользователя)
+- competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best,mean,last} -- правило агрегации результатов best (лучш, max_daily_submissions INT -- максимальное количество отправок в день )
+- prize(prize_id BIGINT PK, competition_id BIGINT FK→competition, amount NUMERIC -- сумма приза денежное вознаграждение разм, currency VARCHAR -- валюта приза например USD EUR RUB)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic' -- название соревнования конкурса турнира, start_at TIMESTAMPTZ -- дата и время начала соревнования, end_at TIMESTAMPTZ -- дата и время окончания соревнования, status VARCHAR {active,finished,draft} -- статус соревнования active (активное) fi)
+- participation_status(status_id SERIAL PK, name VARCHAR(15) UNIQUE -- краткое имя статуса участия, description TEXT -- описание статуса участия)
+
+## Похожие примеры
+Пользователи с успешными отправками в соревнованиях по типу задачи регрессия
+SQL: SELECT DISTINCT u.username FROM user u JOIN participation p ON p.user_id = u.user_id JOIN competition c ON c.competition_id = p.competition_id JOIN competition_config cc ON cc.competition_id = c.competition_id JOIN metric m ON m.metric_id = cc.metric_id JOIN task_type t ON t.task_type_id = m.task_type_id JOIN submission s ON s.participation_id = p.participation_id WHERE t.code = 'regression'
+  AND s.status = 'success';
+
+Соревнования с наименьшим лимитом отправок в день
+SQL: SELECT c.title, cc.max_daily_submissions FROM competition_config cc JOIN competition c ON cc.competition_id = c.competition_id ORDER BY cc.max_daily_submissions ASC LIMIT 10;
+============================================================
+2026-04-22 12:42:33,875 INFO src.llm: Generated SQL:
+SELECT COUNT(*) AS submission_count
+FROM evaluation e
+JOIN competition_config cc ON cc.competition_id = (
+    SELECT c.competition_id
+    FROM competition c
+    WHERE c.competition_id = cc.competition_id
+)
+WHERE cc.metric_id = (
+    SELECT m.metric_id
+    FROM metric m
+    WHERE m.name = 'MSE'
+);
+2026-04-24 22:07:28,548 INFO src.llm: User prompt: покажи число попыток "submissions", чья метрика "MSE" была меньше 20 и отправлена была в промежутке между 2 и 5 часами
+2026-04-24 22:07:29,533 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, task_type_id BIGINT FK→task_type, title VARCHAR -- название соревнования например 'House Price' 'Titanic' -- название соревнования конкурса турнира, start_at TIMESTAMPTZ -- дата и время начала соревнования, end_at TIMESTAMPTZ -- дата и время окончания соревнования, status VARCHAR {active,finished,draft} -- статус соревнования active (активное) fi)
+- user(user_id BIGINT PK, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, created_at TIMESTAMPTZ -- дата и время регистрации пользователя на, bio TEXT nullable -- биография пользователя)
+- competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best,mean,last} -- правило агрегации результатов best (лучш, max_daily_submissions INT -- максимальное количество отправок в день )
+- evaluation(evaluation_id BIGINT PK, submission_id BIGINT FK→submission, metric_value FLOAT -- числовое значение метрики результат оцен, computed_at TIMESTAMPTZ -- дата и время когда была вычислена оценка)
+- participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, registered_at TIMESTAMPTZ -- дата и время регистрации участника в сор, status VARCHAR {active,withdrawn} -- статус участия active (активный) disqual)
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли (например admin, description TEXT -- текстовое описание назначения роли)
+
+## Похожие примеры
+Пользователи зарегистрированные в 2023 году отсортированные по количеству отправок
+SQL: SELECT u.user_id, u.username, COUNT(s.submission_id) AS submissions_count FROM user u JOIN participation p ON u.user_id = p.user_id JOIN submission s ON p.participation_id = s.participation_id WHERE u.created_at BETWEEN '2023-01-01' AND '2023-12-31' GROUP BY u.user_id, u.username ORDER BY submissions_count DESC;
+
+Пользователи участвовавшие в соревнованиях по классификации и имеющие хотя бы одну успешную отправку
+SQL: SELECT DISTINCT u.username FROM user u JOIN participation p ON p.user_id = u.user_id JOIN competition c ON c.competition_id = p.competition_id JOIN competition_config cc ON cc.competition_id = c.competition_id JOIN metric m ON m.metric_id = cc.metric_id JOIN task_type t ON t.task_type_id = m.task_type_id JOIN submission s ON s.participation_id = p.participation_id WHERE t.code = 'classification'
+  AND s.status = 'success';
+
+Соревнования с наименьшим лимитом отправок в день
+SQL: SELECT c.title, cc.max_daily_submissions FROM competition_config cc JOIN competition c ON cc.competition_id = c.competition_id ORDER BY cc.max_daily_submissions ASC LIMIT 10;
+============================================================
+2026-04-24 22:07:37,293 INFO src.llm: Generated SQL:
+SELECT COUNT(e.evaluation_id) AS submissions_count
+FROM evaluation e
+JOIN submission s ON s.submission_id = e.submission_id
+WHERE e.metric_value < 20
+  AND EXTRACT(HOUR FROM e.computed_at) BETWEEN 2 AND 5;
+2026-04-25 13:30:00,708 INFO src.llm: User prompt: Число попыток "submissions" в системе
+2026-04-25 13:30:01,570 INFO src.llm: Schema context:
+============================================================
+## Подсказка FK-пути
+Tables: evaluation → submission → participation → competition → competition_config → user → code_kernel
+Joins:
+  JOIN submission ON submission.submission_id = evaluation.submission_id
+  JOIN participation ON participation.participation_id = submission.participation_id
+  JOIN competition ON competition.competition_id = participation.competition_id
+  JOIN competition_config ON competition_config.competition_id = competition.competition_id
+
+## Доступные таблицы
+- evaluation(evaluation_id BIGINT PK, submission_id BIGINT FK→submission, metric_value FLOAT -- числовое значение метрики результат оцен, computed_at TIMESTAMPTZ -- дата и время когда была вычислена оценка)
+- submission(submission_id BIGINT PK, participation_id BIGINT FK→participation, submitted_at TIMESTAMPTZ -- дата и время отправки решения сабмита, status VARCHAR {success,failed,pending} -- статус отправки success (успешно принято)
+- competition_config(config_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, aggregation_rule VARCHAR {best,mean,last} -- правило агрегации результатов best (лучш, max_daily_submissions INT -- максимальное количество отправок в день )
+- user(user_id BIGINT PK, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, created_at TIMESTAMPTZ -- дата и время регистрации пользователя на, bio TEXT nullable -- биография пользователя)
+- participation(participation_id BIGINT PK, user_id BIGINT FK→user, competition_id BIGINT FK→competition, registered_at TIMESTAMPTZ -- дата и время регистрации участника в сор, status VARCHAR {active,withdrawn} -- статус участия active (активный) disqual)
+- code_kernel(kernel_id BIGINT PK, participation_id BIGINT FK→participation, language VARCHAR {Python,R,Julia} -- язык программирования ноутбука Python R , created_at TIMESTAMPTZ -- дата и время создания ноутбука скрипта)
+
+## Похожие примеры
+Пользователи зарегистрированные в 2023 году отсортированные по количеству отправок
+SQL: SELECT u.user_id, u.username, COUNT(s.submission_id) AS submissions_count FROM user u JOIN participation p ON u.user_id = p.user_id JOIN submission s ON p.participation_id = s.participation_id WHERE u.created_at BETWEEN '2023-01-01' AND '2023-12-31' GROUP BY u.user_id, u.username ORDER BY submissions_count DESC;
+
+Соревнования с наименьшим лимитом отправок в день
+SQL: SELECT c.title, cc.max_daily_submissions FROM competition_config cc JOIN competition c ON cc.competition_id = c.competition_id ORDER BY cc.max_daily_submissions ASC LIMIT 10;
+============================================================
+2026-04-25 13:30:03,746 INFO src.llm: Generated SQL:
+SELECT COUNT(*) AS submissions_count
+FROM submission;
+2026-04-25 15:36:49,032 INFO src.llm: User prompt: для метрики "MSE" посчитать число соревнований в котором участник "A"  использовал датасет "B"
+2026-04-25 15:36:49,615 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT -- суточный лимит отправок)
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли, description TEXT -- текстовое описание роли)
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- dataset_file(file_id BIGINT PK -- идентификатор файла, dataset_id BIGINT FK→dataset, filename VARCHAR(50) -- имя файла, storage_path TEXT -- путь хранения файла, size_bytes BIGINT -- размер файла в байтах, checksum VARCHAR(64) NULL -- контрольная сумма)
+- metric(metric_id BIGINT PK, name VARCHAR -- имя метрики, formula TEXT -- формула вычисления метрики, optimization_dir VARCHAR(3) -- направление оптимизации max/min, description TEXT -- пояснение по метрике, created_at TIMESTAMP -- дата создания записи метрики)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50) -- название соревнования, description TEXT -- текстовое описание соревнования, starts_at TIMESTAMP -- время начала соревнования, ends_at TIMESTAMP -- время окончания соревнования)
+
+## Похожие примеры
+Участники превысившие дневной лимит отправок
+SQL: SELECT u.username, DATE(s.submitted_at) AS day, COUNT(s.submission_id) AS daily_count FROM "user" u JOIN participation p ON p.user_id = u.user_id JOIN submission s ON s.participation_id = p.participation_id JOIN configuration cfg ON cfg.competition_id = p.competition_id GROUP BY u.username, DATE(s.submitted_at), cfg.daily_attempt_limit HAVING COUNT(s.submission_id) > cfg.daily_attempt_limit;
+
+Сколько датасетов у каждого соревнования
+SQL: SELECT competition_id, COUNT(*) AS datasets_count FROM competition_dataset GROUP BY competition_id ORDER BY datasets_count DESC;
+============================================================
+2026-04-25 15:37:00,559 INFO src.llm: Generated SQL:
+SELECT COUNT(DISTINCT cfg.competition_id) AS competitions_count
+FROM configuration cfg
+JOIN metric m ON m.metric_id = cfg.metric_id
+JOIN "user" u ON u.user_id = cfg.competition_id  -- placeholder join
+JOIN dataset_file df ON df.dataset_id = cfg.competition_id  -- placeholder join
+WHERE m.name = 'MSE'
+  AND u.username = 'A'
+  AND df.filename = 'B';
+2026-04-25 15:54:04,707 INFO src.llm: User prompt: найти соревнования, в которых учавствовал пользователь "A" и запостили в попытках хотя бы один с файлом датасета "B"
+2026-04-25 15:54:05,391 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT -- суточный лимит отправок)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50) -- название соревнования, description TEXT -- текстовое описание соревнования, starts_at TIMESTAMP -- время начала соревнования, ends_at TIMESTAMP -- время окончания соревнования)
+- participation(participation_id BIGINT PK -- идентификатор участия, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_best_best_score NUMERIC(12, 6) NULL, rank SMALLINT NULL -- место участника, registered_at TIMESTAMP -- дата регистрации участия)
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- participation_status(status_id SERIAL PK -- идентификатор статуса участия, name VARCHAR(15) UNIQUE -- код статуса, description TEXT -- описание статуса)
+- dataset(dataset_id BIGINT PK -- идентификатор датасета, purpose_id BIGINT FK→dataset_purpose, name VARCHAR(30) -- имя датасета, is_hidden BOOLEAN -- скрыт ли датасет, version SMALLINT -- версия датасета)
+
+## Похожие примеры
+Количество валидных сабмитов по соревнованиям
+SQL: SELECT p.competition_id, COUNT(*) AS valid_submissions FROM submission s JOIN participation p ON p.participation_id = s.participation_id WHERE s.is_valid = TRUE GROUP BY p.competition_id ORDER BY valid_submissions DESC;
+
+Типы задач используемые в конфигурациях соревнований
+SQL: SELECT tt.code, COUNT(cfg.configuration_id) AS used_in_competitions FROM task_type tt LEFT JOIN configuration cfg ON cfg.task_type_id = tt.task_type_id GROUP BY tt.code ORDER BY used_in_competitions DESC;
+============================================================
+2026-04-25 15:54:11,706 INFO src.llm: Generated SQL:
+SELECT c.competition_id, c.title
+FROM competition c
+JOIN participation p ON p.competition_id = c.competition_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE u.username = 'A';
+2026-04-25 15:56:37,331 INFO src.llm: User prompt: найти соревнвоания, в которых учавствовал пользователь "A" в роли "B" и запостили в попытках хотя бы один с файлом датасета "C"
+2026-04-25 15:56:38,133 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT -- суточный лимит отправок)
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- dataset(dataset_id BIGINT PK -- идентификатор датасета, purpose_id BIGINT FK→dataset_purpose, name VARCHAR(30) -- имя датасета, is_hidden BOOLEAN -- скрыт ли датасет, version SMALLINT -- версия датасета)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50) -- название соревнования, description TEXT -- текстовое описание соревнования, starts_at TIMESTAMP -- время начала соревнования, ends_at TIMESTAMP -- время окончания соревнования)
+- participation_status(status_id SERIAL PK -- идентификатор статуса участия, name VARCHAR(15) UNIQUE -- код статуса, description TEXT -- описание статуса)
+- participation(participation_id BIGINT PK -- идентификатор участия, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_best_best_score NUMERIC(12, 6) NULL, rank SMALLINT NULL -- место участника, registered_at TIMESTAMP -- дата регистрации участия)
+
+## Похожие примеры
+Количество валидных сабмитов по соревнованиям
+SQL: SELECT p.competition_id, COUNT(*) AS valid_submissions FROM submission s JOIN participation p ON p.participation_id = s.participation_id WHERE s.is_valid = TRUE GROUP BY p.competition_id ORDER BY valid_submissions DESC;
+
+Сколько датасетов у каждого соревнования
+SQL: SELECT competition_id, COUNT(*) AS datasets_count FROM competition_dataset GROUP BY competition_id ORDER BY datasets_count DESC;
+============================================================
+2026-04-25 15:56:45,667 INFO src.llm: Generated SQL:
+SELECT c.competition_id, c.title
+FROM competition c
+JOIN participation p ON p.competition_id = c.competition_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE u.username = 'A'
+ORDER BY c.competition_id;
+2026-04-25 15:59:37,516 INFO src.llm: User prompt: Для первых 20 команд посчитать число участий и соревнований в которых она учавстовала
+2026-04-25 15:59:38,041 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли, description TEXT -- текстовое описание роли)
+- dataset_file(file_id BIGINT PK -- идентификатор файла, dataset_id BIGINT FK→dataset, filename VARCHAR(50) -- имя файла, storage_path TEXT -- путь хранения файла, size_bytes BIGINT -- размер файла в байтах, checksum VARCHAR(64) NULL -- контрольная сумма)
+- configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT -- суточный лимит отправок)
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- participation(participation_id BIGINT PK -- идентификатор участия, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_best_best_score NUMERIC(12, 6) NULL, rank SMALLINT NULL -- место участника, registered_at TIMESTAMP -- дата регистрации участия)
+- submission(submission_id BIGINT PK -- идентификатор отправки, participation_id BIGINT FK→participation, status_id BIGINT FK→submission_status, file_path TEXT -- путь к отправленному файлу, attempt_number SMALLINT -- номер попытки, metric_value NUMERIC(12 -- оценка метрики, 6) NULL, is_valid BOOLEAN -- валиден ли сабмит, error_log TEXT NULL -- лог ошибок валидации/оценки, source_code TEXT NULL -- исходный код решения, language VARCHAR(30) NULL -- язык программирования решения, solution_description TEXT NULL -- текстовое описание решения, submitted_at TIMESTAMP -- дата и время отправки)
+
+## Похожие примеры
+Количество датасетов у каждой команды
+SQL: SELECT team_id, COUNT(*) AS datasets_count FROM team_competition GROUP BY team_id ORDER BY datasets_count DESC;
+
+Топ 20 самых больших файлов
+SQL: SELECT file_id, filename, size_bytes FROM dataset_file ORDER BY size_bytes DESC LIMIT 20;
+============================================================
+2026-04-25 15:59:43,692 INFO src.llm: Generated SQL:
+SELECT p.team_id,
+       COUNT(*) AS participations,
+       COUNT(DISTINCT p.competition_id) AS competitions
+FROM participation p
+WHERE p.team_id IS NOT NULL
+GROUP BY p.team_id
+ORDER BY p.team_id
+LIMIT 20;
+2026-04-25 16:01:49,472 INFO src.llm: User prompt: пользователи с максимальных числом участий
+2026-04-25 16:01:49,895 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли, description TEXT -- текстовое описание роли)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50) -- название соревнования, description TEXT -- текстовое описание соревнования, starts_at TIMESTAMP -- время начала соревнования, ends_at TIMESTAMP -- время окончания соревнования)
+- participation(participation_id BIGINT PK -- идентификатор участия, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_best_best_score NUMERIC(12, 6) NULL, rank SMALLINT NULL -- место участника, registered_at TIMESTAMP -- дата регистрации участия)
+- dataset(dataset_id BIGINT PK -- идентификатор датасета, purpose_id BIGINT FK→dataset_purpose, name VARCHAR(30) -- имя датасета, is_hidden BOOLEAN -- скрыт ли датасет, version SMALLINT -- версия датасета)
+- metric(metric_id BIGINT PK, name VARCHAR -- имя метрики, formula TEXT -- формула вычисления метрики, optimization_dir VARCHAR(3) -- направление оптимизации max/min, description TEXT -- пояснение по метрике, created_at TIMESTAMP -- дата создания записи метрики)
+
+## Похожие примеры
+Сколько пользователей зарегистрировано
+SQL: SELECT COUNT(*) AS user_count FROM "user";
+
+Количество валидных сабмитов по соревнованиям
+SQL: SELECT p.competition_id, COUNT(*) AS valid_submissions FROM submission s JOIN participation p ON p.participation_id = s.participation_id WHERE s.is_valid = TRUE GROUP BY p.competition_id ORDER BY valid_submissions DESC;
+============================================================
+2026-04-25 16:01:57,320 INFO src.llm: Generated SQL:
+SELECT u.user_id, u.username, COUNT(p.participation_id) AS participation_count
+FROM "user" u
+JOIN participation p ON p.user_id = u.user_id
+GROUP BY u.user_id, u.username
+ORDER BY participation_count DESC
+LIMIT 1;
+2026-04-25 16:03:03,603 INFO src.llm: User prompt: найти пользователей с одинаковым числом участий в команде
+2026-04-25 16:03:04,304 INFO src.llm: Schema context:
+============================================================
+## Доступные таблицы
+- user(user_id BIGINT PK, role_id BIGINT FK→role, username VARCHAR -- имя пользователя, email VARCHAR -- электронная почта пользователя, password_hash VARCHAR -- хеш пароля, registered_at TIMESTAMP -- дата и время регистрации)
+- role(role_id SERIAL PK, name VARCHAR(30) UNIQUE -- короткое имя роли, description TEXT -- текстовое описание роли)
+- configuration(configuration_id BIGINT PK, competition_id BIGINT FK→competition, metric_id BIGINT FK→metric, task_type_id BIGINT FK→task_type, daily_attempt_limit SMALLINT -- суточный лимит отправок)
+- dataset(dataset_id BIGINT PK -- идентификатор датасета, purpose_id BIGINT FK→dataset_purpose, name VARCHAR(30) -- имя датасета, is_hidden BOOLEAN -- скрыт ли датасет, version SMALLINT -- версия датасета)
+- competition(competition_id BIGINT PK, organizer_id BIGINT FK→user, status_id BIGINT FK→competition_status, title VARCHAR(50) -- название соревнования, description TEXT -- текстовое описание соревнования, starts_at TIMESTAMP -- время начала соревнования, ends_at TIMESTAMP -- время окончания соревнования)
+- participation(participation_id BIGINT PK -- идентификатор участия, user_id BIGINT FK→user, competition_id BIGINT FK→competition, status_id BIGINT FK→participation_status, team_id BIGINT FK→team NULL, best_best_best_score NUMERIC(12, 6) NULL, rank SMALLINT NULL -- место участника, registered_at TIMESTAMP -- дата регистрации участия)
+
+## Похожие примеры
+Сколько пользователей зарегистрировано
+SQL: SELECT COUNT(*) AS user_count FROM "user";
+
+Количество валидных сабмитов по соревнованиям
+SQL: SELECT p.competition_id, COUNT(*) AS valid_submissions FROM submission s JOIN participation p ON p.participation_id = s.participation_id WHERE s.is_valid = TRUE GROUP BY p.competition_id ORDER BY valid_submissions DESC;
+============================================================
+2026-04-25 16:03:16,087 INFO src.llm: Generated SQL:
+SELECT u.user_id, u.username, pc.participation_count
+FROM (
+    SELECT user_id, COUNT(*) AS participation_count
+    FROM participation
+    WHERE team_id IS NOT NULL
+    GROUP BY user_id
+) pc
+JOIN "user" u USING (user_id)
+WHERE pc.participation_count IN (
+    SELECT participation_count
+    FROM (
+        SELECT COUNT(*) AS participation_count
+        FROM participation
+        WHERE team_id IS NOT NULL
+        GROUP BY user_id
+    ) sub
+    GROUP BY participation_count
+    HAVING COUNT(*) > 1
+)
+ORDER BY pc.participation_count, u.user_id;

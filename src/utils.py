@@ -1,25 +1,9 @@
 from __future__ import annotations
 
-import json
 import logging
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-
-class JsonLoader:
-    @staticmethod
-    def load(path: Optional[Path] = None) -> List[Dict[str, Any]]:
-        if path is None:
-            path = Path(__file__).resolve().parent.parent / "docs/schema.json"
-        try:
-            with Path(path).open(encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                raise ValueError("JSON root must be a list of schema entries")
-            return data
-        except Exception:
-            raise
 
 
 class YamlReader:
@@ -32,17 +16,17 @@ class YamlReader:
             schema = yaml.safe_load(f)
 
         tables = schema.get("tables", {}) if isinstance(schema, dict) else {}
-        entries = []
-        for tbl, cfg in tables.items():
-            entries.append({
+        return [
+            {
                 "table":          tbl,
                 "retrieval_text": (cfg.get("retrieval_text") or "").strip(),
                 "context_text":   (cfg.get("context_text")   or "").strip(),
                 "relations":      cfg.get("relations") or [],
-                "columns":        cfg.get("columns") or {},
-                "examples":       cfg.get("examples") or [],
-            })
-        return entries
+                "columns":        cfg.get("columns")   or {},
+                "examples":       cfg.get("examples")  or [],
+            }
+            for tbl, cfg in tables.items()
+        ]
 
 
 class GraphReader:
@@ -57,7 +41,7 @@ class GraphReader:
             raise ValueError("graph.yaml root must be a mapping")
         return {
             "algorithms": data.get("algorithms") or {},
-            "tables":     data.get("tables") or {},
+            "tables":     data.get("tables")     or {},
         }
 
 
@@ -70,11 +54,10 @@ class Logger:
         logger = logging.getLogger(name)
         if not logger.handlers:
             fh = logging.FileHandler(logs_dir / filename, encoding="utf-8")
-            fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            fh.setFormatter(fmt)
+            fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
             logger.addHandler(fh)
         logger.setLevel(level)
         return logger
 
 
-__all__ = ["JsonLoader", "YamlReader", "GraphReader", "Logger"]
+__all__ = ["YamlReader", "GraphReader", "Logger"]

@@ -1,0 +1,155 @@
+2026-04-18 12:37:46,063 INFO src.llm_service: Generated SQL:
+SELECT COUNT(s.submission_id) AS attempts_count
+FROM submission s
+JOIN participation p ON s.participation_id = p.participation_id
+WHERE EXTRACT(HOUR FROM s.submitted_at) BETWEEN 3 AND 5;
+2026-04-18 14:35:53,844 INFO src.llm_service: Generated SQL:
+
+2026-04-22 12:42:33,875 INFO src.llm_service: Generated SQL:
+SELECT COUNT(*) AS submission_count
+FROM evaluation e
+JOIN competition_config cc ON cc.competition_id = (
+    SELECT c.competition_id
+    FROM competition c
+    WHERE c.competition_id = cc.competition_id
+)
+WHERE cc.metric_id = (
+    SELECT m.metric_id
+    FROM metric m
+    WHERE m.name = 'MSE'
+);
+2026-04-22 12:42:33,880 ERROR src.llm_service: SQL execution failed: [Errno 61] Connection refused
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 148, in _generate
+    conn = await asyncpg.connect(**_pg_connect_kwargs())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+    return await connect_utils._connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+    raise last_error or exceptions.TargetServerAttributeNotMatched(
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+    conn = await _connect_addr(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+    return await __connect_addr(params, True, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+    tr, pr = await connector
+             ^^^^^^^^^^^^^^^
+  File "/Users/ivan/myvenv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+    tr, pr = await loop.create_connection(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 2043, in create_connection
+  File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+ConnectionRefusedError: [Errno 61] Connection refused
+2026-04-24 22:07:37,293 INFO src.llm_service: Generated SQL:
+SELECT COUNT(e.evaluation_id) AS submissions_count
+FROM evaluation e
+JOIN submission s ON s.submission_id = e.submission_id
+WHERE e.metric_value < 20
+  AND EXTRACT(HOUR FROM e.computed_at) BETWEEN 2 AND 5;
+2026-04-25 13:30:03,746 INFO src.llm_service: Generated SQL:
+SELECT COUNT(*) AS submissions_count
+FROM submission;
+2026-04-25 15:04:22,695 ERROR src.llm_service: Failed to build RAG from rag.yaml: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 88, in __init__
+    self.rag.build_from_yaml()
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/rag/pipeline.py", line 57, in build_from_yaml
+    entries = YamlReader.load(path)
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/utils.py", line 31, in load
+    with src.open(encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_3/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py", line 1044, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+2026-04-25 15:04:34,789 ERROR src.llm_service: Failed to build RAG from rag.yaml: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 88, in __init__
+    self.rag.build_from_yaml()
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/rag/pipeline.py", line 57, in build_from_yaml
+    entries = YamlReader.load(path)
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/utils.py", line 31, in load
+    with src.open(encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_3/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py", line 1044, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+2026-04-25 15:05:34,844 ERROR src.llm_service: Failed to build RAG from rag.yaml: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+Traceback (most recent call last):
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/llm_service.py", line 88, in __init__
+    self.rag.build_from_yaml()
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/rag/pipeline.py", line 57, in build_from_yaml
+    entries = YamlReader.load(path)
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ivan/prog/poly/sem4/db/llm/src/utils.py", line 31, in load
+    with src.open(encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.14_3/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py", line 1044, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/ivan/prog/poly/sem4/db/llm/docs/rag.yaml'
+2026-04-25 15:37:00,559 INFO src.llm_service: Generated SQL:
+SELECT COUNT(DISTINCT cfg.competition_id) AS competitions_count
+FROM configuration cfg
+JOIN metric m ON m.metric_id = cfg.metric_id
+JOIN "user" u ON u.user_id = cfg.competition_id  -- placeholder join
+JOIN dataset_file df ON df.dataset_id = cfg.competition_id  -- placeholder join
+WHERE m.name = 'MSE'
+  AND u.username = 'A'
+  AND df.filename = 'B';
+2026-04-25 15:54:11,706 INFO src.llm_service: Generated SQL:
+SELECT c.competition_id, c.title
+FROM competition c
+JOIN participation p ON p.competition_id = c.competition_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE u.username = 'A';
+2026-04-25 15:56:45,667 INFO src.llm_service: Generated SQL:
+SELECT c.competition_id, c.title
+FROM competition c
+JOIN participation p ON p.competition_id = c.competition_id
+JOIN "user" u ON u.user_id = p.user_id
+WHERE u.username = 'A'
+ORDER BY c.competition_id;
+2026-04-25 15:59:43,692 INFO src.llm_service: Generated SQL:
+SELECT p.team_id,
+       COUNT(*) AS participations,
+       COUNT(DISTINCT p.competition_id) AS competitions
+FROM participation p
+WHERE p.team_id IS NOT NULL
+GROUP BY p.team_id
+ORDER BY p.team_id
+LIMIT 20;
+2026-04-25 16:01:57,320 INFO src.llm_service: Generated SQL:
+SELECT u.user_id, u.username, COUNT(p.participation_id) AS participation_count
+FROM "user" u
+JOIN participation p ON p.user_id = u.user_id
+GROUP BY u.user_id, u.username
+ORDER BY participation_count DESC
+LIMIT 1;
+2026-04-25 16:03:16,087 INFO src.llm_service: Generated SQL:
+SELECT u.user_id, u.username, pc.participation_count
+FROM (
+    SELECT user_id, COUNT(*) AS participation_count
+    FROM participation
+    WHERE team_id IS NOT NULL
+    GROUP BY user_id
+) pc
+JOIN "user" u USING (user_id)
+WHERE pc.participation_count IN (
+    SELECT participation_count
+    FROM (
+        SELECT COUNT(*) AS participation_count
+        FROM participation
+        WHERE team_id IS NOT NULL
+        GROUP BY user_id
+    ) sub
+    GROUP BY participation_count
+    HAVING COUNT(*) > 1
+)
+ORDER BY pc.participation_count, u.user_id;
