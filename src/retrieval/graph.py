@@ -166,11 +166,15 @@ class KnowledgeGraph:
         return []
 
     def _bfs_chain(self, anchors: List[str]) -> Optional[List[str]]:
-        """Поиск пути Dijkstra через упорядоченные якоря с пропуском уже посещенных узлов."""
+        # Skip isolated nodes (no FK edges) — they can't participate in a join path
+        connected = [a for a in anchors if self._g.degree(a) > 0]
+        if len(connected) < 2:
+            return None
+
         chain:   List[str] = []
         visited: set[str]  = set()
-        for i in range(len(anchors) - 1):
-            src, dst = anchors[i], anchors[i + 1]
+        for i in range(len(connected) - 1):
+            src, dst = connected[i], connected[i + 1]
             if dst in visited:
                 continue
             try:
@@ -180,8 +184,8 @@ class KnowledgeGraph:
                         chain.append(node)
                         visited.add(node)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                return None
-        return chain
+                continue  # skip disconnected segment, try next pair
+        return chain if len(chain) >= 2 else None
 
     def _edges_for_path(self, tables: List[str]) -> List[JoinEdge]:
         edges = []
