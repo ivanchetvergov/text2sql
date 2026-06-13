@@ -87,9 +87,11 @@ def _run_case(
     generated_sql  = ""
     generate_error: Optional[str] = None
     verdict: Dict[str, Any] = {}
+    model_used = pipeline.llm.last_used_model
 
     try:
         generated_sql = pipeline.generate(question)
+        model_used = pipeline.llm.last_used_model
     except Exception as exc:
         generate_error = str(exc)
         _logger.error("generate() failed for %s: %s", case.get("id"), exc)
@@ -124,6 +126,7 @@ def _run_case(
             "error":    verdict.get("error",    ""),
             "comments": verdict.get("comments", ""),
         },
+        "model_used": model_used,
         "status":     status,
         "duration_s": duration_s,
         "error":      generate_error,

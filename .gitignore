@@ -15,6 +15,12 @@ logs/*.log
 # Benchmark outputs
 results.json
 
+# Spider dataset (large, download separately)
+data/
+
+# Pre-built Spider docs (generated, not source)
+docs/spider/
+
 # OS
 .DS_Store
 .vscode/

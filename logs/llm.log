@@ -309,3 +309,7 @@ WHERE pc.participation_count IN (
     HAVING COUNT(*) > 1
 )
 ORDER BY pc.participation_count, u.user_id;
+2026-06-13 11:58:08,805 INFO src.llm: model=openai/gpt-oss-120b:free ok
+2026-06-13 11:58:17,634 INFO src.llm: model=openai/gpt-oss-120b:free ok
+2026-06-13 11:58:24,042 INFO src.llm: model=openai/gpt-oss-120b:free ok
+2026-06-13 11:58:29,798 INFO src.llm: model=openai/gpt-oss-120b:free ok

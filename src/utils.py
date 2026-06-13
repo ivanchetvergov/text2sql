@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 
 class YamlReader:
-    _DEFAULT = Path(__file__).resolve().parent.parent / "docs" / "rag.yaml"
+    _DEFAULT = Path(__file__).resolve().parent.parent / "docs" / "custom" / "rag.yaml"
 
     @staticmethod
     def load(path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -30,7 +30,7 @@ class YamlReader:
 
 
 class GraphReader:
-    _DEFAULT = Path(__file__).resolve().parent.parent / "docs" / "graph.yaml"
+    _DEFAULT = Path(__file__).resolve().parent.parent / "docs" / "custom" / "graph.yaml"
 
     @staticmethod
     def load(path: Optional[Path] = None) -> Dict[str, Any]:

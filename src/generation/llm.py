@@ -27,6 +27,7 @@ class LLM:
         self.site_url = os.getenv("OPENROUTER_SITE_URL", "")
         self.app_name = os.getenv("OPENROUTER_APP_NAME", "text2sql")
         self._logger = Logger.get_logger("src.llm", filename="llm.log")
+        self.last_used_model: str = model_name
         if not self.api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not set")
         if check:
@@ -69,6 +70,8 @@ class LLM:
                 )
                 resp.raise_for_status()
                 choices = resp.json().get("choices", [])
+                self.last_used_model = model
+                self._logger.info("model=%s ok", model)
                 return choices[0].get("message", {}).get("content", "") if choices else ""
             except requests.RequestException as exc:
                 last_error = exc
