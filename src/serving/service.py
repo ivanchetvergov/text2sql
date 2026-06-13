@@ -12,19 +12,7 @@ from pydantic import BaseModel
 
 from ..retrieval import EmbeddingModel, KnowledgeGraph, RAG
 from ..generation import LLM, Pipeline
-from ..utils import Logger
-
-
-def _load_env_file() -> None:
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+from ..utils import Logger, load_env
 
 
 def _pg_connect_kwargs() -> dict[str, str | int]:
@@ -58,7 +46,7 @@ class LLMService:
         model_name: str = "qwen/qwen-2.5-coder-32b-instruct",
         timeout: float = 180.0,
     ) -> None:
-        _load_env_file()
+        load_env()
         self._logger = Logger.get_logger("src.llm_service", filename="llm_service.log")
 
         rag = RAG(EmbeddingModel())

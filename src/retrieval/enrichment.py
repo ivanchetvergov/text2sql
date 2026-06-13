@@ -190,15 +190,9 @@ def sample_values(db_path: Path, table: str, columns: list[str], n: int = 5) -> 
         for col in columns:
             try:
                 rows = conn.execute(
-                    f'SELECT "{col}" FROM "{table}" WHERE "{col}" IS NOT NULL LIMIT {n}'
+                    f'SELECT "{col}" FROM "{table}" LIMIT {n}'
                 ).fetchall()
-                nulls = conn.execute(
-                    f'SELECT COUNT(*) FROM "{table}" WHERE "{col}" IS NULL'
-                ).fetchone()[0]
-                vals: list[Any] = [r[0] for r in rows]
-                if nulls > 0 and len(vals) < n:
-                    vals.append(None)
-                result[col] = vals
+                result[col] = [r[0] for r in rows]
             except Exception:
                 result[col] = []
         conn.close()

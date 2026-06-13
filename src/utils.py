@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,4 +61,17 @@ class Logger:
         return logger
 
 
-__all__ = ["YamlReader", "GraphReader", "Logger"]
+def load_env(root: Path | None = None) -> None:
+    """Load .env from project root into os.environ (setdefault — won't override existing vars)."""
+    env_path = (root or Path(__file__).resolve().parent.parent) / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+__all__ = ["YamlReader", "GraphReader", "Logger", "load_env"]

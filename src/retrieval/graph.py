@@ -148,9 +148,15 @@ class KnowledgeGraph:
         return total
 
     def expand(self, anchor_tables: List[str]) -> List[PathResult]:
-        anchors = [t for t in anchor_tables if t in self._g]
+        present  = [t for t in anchor_tables if t in self._g]
+        anchors  = [t for t in present if self._g.degree(t) > 0]
+        missing  = set(anchor_tables) - set(present)
+        isolated = set(present) - set(anchors)
+        if missing:
+            self._logger.warning("Anchors not in graph: %s", sorted(missing))
+        if isolated:
+            self._logger.warning("Anchors isolated (no FK edges): %s", sorted(isolated))
         if not anchors:
-            self._logger.warning("No anchors found in graph: %s", anchor_tables)
             return []
 
         path = self._bfs_chain(anchors)
@@ -166,15 +172,13 @@ class KnowledgeGraph:
         return []
 
     def _bfs_chain(self, anchors: List[str]) -> Optional[List[str]]:
-        # Skip isolated nodes (no FK edges) — they can't participate in a join path
-        connected = [a for a in anchors if self._g.degree(a) > 0]
-        if len(connected) < 2:
+        if len(anchors) < 2:
             return None
 
         chain:   List[str] = []
         visited: set[str]  = set()
-        for i in range(len(connected) - 1):
-            src, dst = connected[i], connected[i + 1]
+        for i in range(len(anchors) - 1):
+            src, dst = anchors[i], anchors[i + 1]
             if dst in visited:
                 continue
             try:
@@ -184,7 +188,7 @@ class KnowledgeGraph:
                         chain.append(node)
                         visited.add(node)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                continue  # skip disconnected segment, try next pair
+                continue
         return chain if len(chain) >= 2 else None
 
     def _edges_for_path(self, tables: List[str]) -> List[JoinEdge]:
@@ -198,9 +202,6 @@ class KnowledgeGraph:
                                       d.get("join_preference", "JOIN")))
         return edges
 
-    def _is_leaf(self, table: str) -> bool:
-        return self._tables.get(table, {}).get("hub_score", 5) >= 5
-
     def enrich(
         self,
         tables: Dict[str, str],
@@ -212,7 +213,7 @@ class KnowledgeGraph:
         added: List[str] = []
         for tname in list(tables.keys()):
             for neighbor in self._g.successors(tname):
-                if neighbor in enriched or self._is_leaf(neighbor):
+                if neighbor in enriched or self._hub_score(neighbor) >= 5:
                     continue
                 ctx = lookup.get(neighbor, "")
                 if not ctx:

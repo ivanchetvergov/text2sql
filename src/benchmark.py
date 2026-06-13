@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 import time
@@ -20,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from .retrieval import EmbeddingModel, KnowledgeGraph, RAG
 from .generation import Judge, LLM, Pipeline
-from .utils import Logger
+from .utils import Logger, load_env
 
 _logger = Logger.get_logger("src.benchmark", filename="benchmark.log")
 
@@ -88,7 +87,7 @@ def _run_case(
     generated_sql  = ""
     generate_error: Optional[str] = None
     verdict: Dict[str, Any] = {}
-    model_used = pipeline.llm.last_used_model
+    model_used = ""
 
     try:
         generated_sql = pipeline.generate(question)
@@ -248,20 +247,8 @@ def run_spider(
     return _run_benchmark(cases, pipeline, judge, output_path, f"spider:{db_id}:{split}", db_path=db_path)
 
 
-def _load_env() -> None:
-    env_path = Path(__file__).resolve().parents[1] / ".env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-
-
 def main() -> int:
-    _load_env()
+    load_env()
     parser = argparse.ArgumentParser(description="text2sql benchmark runner")
     parser.add_argument("--output",  required=True)
     parser.add_argument("--url",     default="https://openrouter.ai/api/v1/chat/completions")

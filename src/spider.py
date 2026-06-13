@@ -31,7 +31,12 @@ class SpiderLoader:
 
     # ── public API ────────────────────────────────────────────────────────────
 
-    def schema_for(self, db_id: str, train_split: str = "train") -> tuple[list[dict], dict]:
+    def schema_for(
+        self,
+        db_id: str,
+        train_split: str = "train",
+        attach_examples: bool = True,
+    ) -> tuple[list[dict], dict]:
         """Return (rag_entries, graph_data) for a Spider database.
 
         Loads from docs/spider/{db_id}.json if available (pre-built, enriched),
@@ -39,22 +44,21 @@ class SpiderLoader:
         """
         doc_path = self._docs_dir / f"{db_id}.json"
         if doc_path.exists():
-            return self._load_from_docs(doc_path, db_id, train_split)
+            return self._load_from_docs(doc_path, db_id, train_split, attach_examples)
 
         db = self._find_db(db_id)
         rag_entries = self._rag_entries(db)
-        self._attach_examples(rag_entries, db_id, train_split)
+        if attach_examples:
+            self._attach_examples(rag_entries, db_id, train_split)
         return rag_entries, self._graph_data(db)
 
     def _load_from_docs(
-        self, doc_path: Path, db_id: str, train_split: str
+        self, doc_path: Path, db_id: str, train_split: str, attach_examples: bool
     ) -> tuple[list[dict], dict]:
-        """Load pre-built (optionally enriched) entries from docs/spider/{db_id}.json."""
         doc = json.loads(doc_path.read_text(encoding="utf-8"))
         rag_entries = doc["entries"]
-        # Re-attach fresh training examples (they may have changed / grown)
-        self._attach_examples(rag_entries, db_id, train_split)
-        # graph_data must still come from tables.json (not stored in doc)
+        if attach_examples:
+            self._attach_examples(rag_entries, db_id, train_split)
         db = self._find_db(db_id)
         return rag_entries, self._graph_data(db)
 
